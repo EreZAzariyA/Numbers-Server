@@ -9,10 +9,9 @@ import categoriesRouter from "./routes/categories";
 import bankRouter from "./routes/bank";
 import verifyToken from "./middlewares/verify-token";
 import config from "./utils/config";
-import path from "path";
 
 const app = express();
-app.use(cors({ origin: '*'}));
+app.use(cors());
 app.use(express.json());
 
 app.use('/api/auth', authenticationRouter);
