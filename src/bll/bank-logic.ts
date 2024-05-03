@@ -5,20 +5,17 @@ import jwt from "../utils/jwt";
 import { Transaction } from "israeli-bank-scrapers/lib/transactions";
 import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
-import { IInvoiceModel, InvoiceModel } from "../models/invoice-model";
+import { InvoiceModel } from "../models/invoice-model";
 
 class BankLogic {
-  private lastYear = moment().subtract('1', 'months').calendar();
+  private lastMonth = moment().subtract('1', 'months').calendar();
 
   fetchBankData = async (details: any, user_id: string) => {
     const options: ScraperOptions = {
       companyId: CompanyTypes[details.companyId],
-      startDate: new Date(this.lastYear),
+      startDate: new Date(this.lastMonth),
       combineInstallments: false,
       showBrowser: false,
-      outputData: {
-        enableTransactionsFilterByDate: true,
-      },
     };
 
     const credentials: ScraperCredentials = {
@@ -32,26 +29,34 @@ class BankLogic {
 
     if (scrapeResult.success) {
       const account = scrapeResult.accounts[0];
-      let dataSet: any = {
-        'bank.details': {accountNumber: account.accountNumber, balance: account.balance},
+
+      let query: any;
+      let setOne: any = {
         'bank.lastConnection': new Date().valueOf(),
+        'bank.details': {accountNumber: account.accountNumber, balance: account.balance},
+      };
+      let setTwo: any = {
         'bank.bankName': details.companyId,
         'bank.credentials': jwt.createNewToken(details),
       };
-
       if (details.save) {
-        await UserModel.findByIdAndUpdate(
-          user_id,
-          { $set: {...dataSet} }
-        ).exec();
-      } else {
-        await UserModel.findByIdAndUpdate(
-          user_id,
-          { $unset: {...dataSet} }
-        ).exec();
+        query = {
+          '$set': {
+            ...setOne,
+            ...setTwo
+          }
+        };
       }
-
-      return account;
+      if (!details.save) {
+        query = { $unset: { ...setTwo } };
+      }
+  
+      const user = await UserModel.findByIdAndUpdate(user_id, {...query}, { new: true }).exec();
+      const userBank = user.bank;
+      return {
+        userBank,
+        account
+      };
     }
     else {
       throw new Error(scrapeResult.errorType);
@@ -70,7 +75,7 @@ class BankLogic {
       const isExist = await InvoiceModel.findOne({ user_id, description: trans.description }).exec();
       if (!isExist) {
         let invoice = new InvoiceModel({
-          date: moment(trans.date).format('YYYY-MM-DD').toString() || '',
+          date: trans.date,
           description: trans.description || '',
           amount: trans.originalAmount || trans.chargedAmount,
           user_id: user_id,
