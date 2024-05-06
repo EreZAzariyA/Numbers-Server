@@ -15,7 +15,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/api/auth', authenticationRouter);
-app.use('/api/user', verifyToken, usersRouter);
+app.use('/api/users', verifyToken, usersRouter);
 app.use('/api/invoices', verifyToken, invoicesRouter);
 app.use('/api/categories', verifyToken, categoriesRouter);
 app.use('/api/bank-account', verifyToken, bankRouter);

@@ -2,18 +2,18 @@ import { CompanyTypes, ScraperCredentials, ScraperOptions, createScraper } from 
 import moment from "moment";
 import { UserModel } from "../models/user-model";
 import jwt from "../utils/jwt";
-import { Transaction } from "israeli-bank-scrapers/lib/transactions";
+import { Transaction, TransactionStatuses } from "israeli-bank-scrapers/lib/transactions";
 import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { InvoiceModel } from "../models/invoice-model";
 
 class BankLogic {
-  private lastMonth = moment().subtract('1', 'months').calendar();
+  private lastYear = moment().subtract('1', 'years').calendar();
 
   fetchBankData = async (details: any, user_id: string) => {
     const options: ScraperOptions = {
       companyId: CompanyTypes[details.companyId],
-      startDate: new Date(this.lastMonth),
+      startDate: new Date(this.lastYear),
       combineInstallments: false,
       showBrowser: false,
     };
@@ -35,9 +35,10 @@ class BankLogic {
         'bank.lastConnection': new Date().valueOf(),
         'bank.details': {accountNumber: account.accountNumber, balance: account.balance},
       };
+      const {exp, ...rest} = details;
       let setTwo: any = {
         'bank.bankName': details.companyId,
-        'bank.credentials': jwt.createNewToken(details),
+        'bank.credentials': jwt.createNewToken(rest),
       };
       if (details.save) {
         query = {
@@ -51,11 +52,12 @@ class BankLogic {
         query = { $unset: { ...setTwo } };
       }
   
-      const user = await UserModel.findByIdAndUpdate(user_id, {...query}, { new: true }).exec();
+      const user = await UserModel.findByIdAndUpdate(user_id, {...query}, { new: true }).select('-services').exec();
       const userBank = user.bank;
       return {
         userBank,
-        account
+        account,
+        token: jwt.createNewToken(user.toObject())
       };
     }
     else {
@@ -78,6 +80,7 @@ class BankLogic {
           date: trans.date,
           description: trans.description || '',
           amount: trans.originalAmount || trans.chargedAmount,
+          status: trans.status || TransactionStatuses.Completed,
           user_id: user_id,
         });
 

@@ -15,7 +15,8 @@ class InvoicesLogic {
       date: invoice.date,
       category_id: invoice.category_id,
       description: invoice.description,
-      amount: invoice.amount
+      amount: invoice.amount,
+      status: invoice.status
     });
     const errors = newInvoice.validateSync();
     if (errors) {

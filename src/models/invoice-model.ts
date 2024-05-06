@@ -6,6 +6,7 @@ export interface IInvoiceModel extends Document {
   category_id: Schema.Types.ObjectId | any;
   description: string;
   amount: number;
+  status: string
 };
 
 const InvoiceSchema = new Schema<IInvoiceModel>({
@@ -27,6 +28,9 @@ const InvoiceSchema = new Schema<IInvoiceModel>({
     type: Number,
     // required: [true, "Amount is missing"],
     // min: [1, "Amount is to low"],
+  },
+  status: {
+    type: String
   }
 }, {
   versionKey: false,
