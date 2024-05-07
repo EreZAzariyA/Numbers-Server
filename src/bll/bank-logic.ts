@@ -6,6 +6,7 @@ import { Transaction, TransactionStatuses } from "israeli-bank-scrapers/lib/tran
 import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { InvoiceModel } from "../models/invoice-model";
+import ClientError from "../models/client-error";
 
 class BankLogic {
   private lastYear = moment().subtract('1', 'years').calendar();
@@ -48,17 +49,26 @@ class BankLogic {
           }
         };
       }
+      console.log({...query});
+      
       if (!details.save) {
         query = { $unset: { ...setTwo } };
       }
   
-      const user = await UserModel.findByIdAndUpdate(user_id, {...query}, { new: true }).select('-services').exec();
-      const userBank = user.bank;
-      return {
-        userBank,
-        account,
-        token: jwt.createNewToken(user.toObject())
-      };
+      try {
+        const user = await UserModel.findByIdAndUpdate(user_id, {...query}, { new: true }).select('-services').exec();
+        if (!user) {
+          throw new ClientError(500, 'user not found');
+        }
+        const userBank = user?.bank;
+        return {
+          userBank,
+          account,
+          token: jwt.createNewToken(user.toObject())
+        };
+      } catch (err: any) {
+        throw new ClientError(500, err.message);
+      }
     }
     else {
       throw new Error(scrapeResult.errorType);
