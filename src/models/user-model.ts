@@ -20,12 +20,12 @@ export interface IUserModel extends Document {
     'theme-color': ThemeType,
     lang: string
   };
-  bank?: [{
+  bank?: {
     bankName: string
     credentials: string,
     details: object,
     lastConnection: number
-  }];
+  };
   createdAt: Date;
   updatedAt: Date;
 };
@@ -85,20 +85,18 @@ export const UserSchema = new Schema<IUserModel>({
       default: Languages.EN
     },
   },
-  bank: [{
+  bank: {
     bankName: {
       type: String,
-      required: [true, "Bank is missing"],
     },
     credentials: {
       type: String,
-      required: [true, "Credentials is missing"],
     },
     details: {
       type: Object
     },
     lastConnection: Number
-  }]
+  }
 }, {
   versionKey: false,
   autoIndex: true,

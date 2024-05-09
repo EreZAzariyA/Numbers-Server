@@ -7,11 +7,21 @@ import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
+import { SupportedCompanies } from "../utils/helpers";
 
 class BankLogic {
   private lastYear = moment().subtract('1', 'years').calendar();
 
   fetchBankData = async (details: any, user_id: string) => {
+    const user = await UserModel.findById(user_id).exec();
+    if (!user) {
+      throw new ClientError(500, 'user not found');
+    }
+
+    if (!SupportedCompanies[details.companyId]) {
+      throw new ClientError(500, `Company ${details.companyId} is not supported`);
+    }
+
     const options: ScraperOptions = {
       companyId: CompanyTypes[details.companyId],
       startDate: new Date(this.lastYear),
@@ -32,24 +42,27 @@ class BankLogic {
       const account = scrapeResult.accounts[0];
 
       let query: any;
-      let setOne: any = {
+      const setOne = {
         'bank.lastConnection': new Date().valueOf(),
-        'bank.details': {accountNumber: account.accountNumber, balance: account.balance},
+        'bank.details': {
+          accountNumber: account.accountNumber,
+          balance: account.balance
+        },
       };
-      const {exp, ...rest} = details;
-      let setTwo: any = {
-        'bank.bankName': details.companyId,
+      const { exp, ...rest } = details;
+      const setTwo = {
+        'bank.bankName': SupportedCompanies[details.companyId],
         'bank.credentials': jwt.createNewToken(rest),
       };
       if (details.save) {
         query = {
-          '$set': {
+          $set: {
             ...setOne,
             ...setTwo
           }
         };
       }
-      console.log({...query});
+      console.log({query, test: {...query}});
       
       if (!details.save) {
         query = { $unset: { ...setTwo } };
@@ -57,14 +70,11 @@ class BankLogic {
   
       try {
         const user = await UserModel.findByIdAndUpdate(user_id, {...query}, { new: true }).select('-services').exec();
-        if (!user) {
-          throw new ClientError(500, 'user not found');
-        }
         const userBank = user?.bank;
         return {
           userBank,
           account,
-          token: jwt.createNewToken(user.toObject())
+          newUserToken: jwt.createNewToken(user.toObject())
         };
       } catch (err: any) {
         throw new ClientError(500, err.message);
