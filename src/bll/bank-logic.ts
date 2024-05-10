@@ -54,6 +54,7 @@ class BankLogic {
         'bank.bankName': SupportedCompanies[details.companyId],
         'bank.credentials': jwt.createNewToken(rest),
       };
+
       if (details.save) {
         query = {
           $set: {
@@ -62,14 +63,12 @@ class BankLogic {
           }
         };
       }
-      console.log({query, test: {...query}});
-      
-      if (!details.save) {
+      if (details.save === false) {
         query = { $unset: { ...setTwo } };
       }
-  
+
       try {
-        const user = await UserModel.findByIdAndUpdate(user_id, {...query}, { new: true }).select('-services').exec();
+        const user = await UserModel.findByIdAndUpdate(user_id, query, { new: true }).select('-services').exec();
         const userBank = user?.bank;
         return {
           userBank,
@@ -117,6 +116,28 @@ class BankLogic {
     const inserted = await InvoiceModel.insertMany(invoicesToInsert);
     return inserted;
   };
+
+  // connectBank = async () => {
+  //   var request = require("request");
+
+  //   var options = { method: 'POST',
+  //     url: 'https://api.discountbank.co.il/prod/d/psd2/v1.0.6/consent/token',
+  //     qs: { client_id: '0c0442a1-9ffd-440b-9168-656f42baac1f' },
+  //     headers: 
+  //      { accept: 'application/json',
+  //        'content-type': 'application/x-www-form-urlencoded' },
+  //     form: 
+  //      { grant_type: 'client_credentials',
+  //        client_id: '318364478',
+  //        code: 'vomikuorumakawde',
+  //        code_verifier: 'pacazoma' } };
+    
+  //   request(options, function (error, response, body) {
+  //     if (error) return console.error('Failed: %s', error.message);
+    
+  //     console.log('Success: ', body);
+  //   });
+  // }
 };
 
 const bankLogic = new BankLogic();

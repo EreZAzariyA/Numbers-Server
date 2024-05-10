@@ -5,7 +5,7 @@ export interface IUserModel extends Document {
   profile: {
     first_name: string;
     last_name: string;
-    image?: string
+    image_url?: string
   };
   services: {
     password: string,
@@ -25,6 +25,10 @@ export interface IUserModel extends Document {
     credentials: string,
     details: object,
     lastConnection: number
+  };
+  loginAttempts?: {
+    lastAttemptDate: number,
+    attempts: number
   };
   createdAt: Date;
   updatedAt: Date;
@@ -46,7 +50,7 @@ export const UserSchema = new Schema<IUserModel>({
       minLength: [3, "Last name is to short"],
       maxLength: [20, "Last name is to long"],
     },
-    image: {
+    image_url: {
       type: String,
       trim: true,
     },
@@ -96,6 +100,10 @@ export const UserSchema = new Schema<IUserModel>({
       type: Object
     },
     lastConnection: Number
+  },
+  loginAttempts: {
+    lastAttemptDate: Number,
+    attempts: Number
   }
 }, {
   versionKey: false,

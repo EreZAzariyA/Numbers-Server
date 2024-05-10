@@ -1,7 +1,7 @@
 import bcrypt from "bcrypt";
 import ClientError from "../models/client-error";
 
-export const encryptPassword = async (password: string):Promise<String> => {
+export const encryptPassword = async (password: string):Promise<string> => {
   const saltRounds = 10;
 
   try {
@@ -12,7 +12,7 @@ export const encryptPassword = async (password: string):Promise<String> => {
   }
 };
 
-export const comparePassword = async (password: string, encryptedPassword: string):Promise<Boolean> => {
+export const comparePassword = async (password: string, encryptedPassword: string):Promise<boolean> => {
   try {
     const match = await bcrypt.compare(password, encryptedPassword);
     return match;
