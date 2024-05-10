@@ -34,7 +34,7 @@ const createUserForGoogleAccounts = (payload: TokenPayload): Promise<IUserModel>
     profile: {
       first_name: payload.given_name,
       last_name: payload.family_name,
-      image: payload.picture
+      image_url: payload.picture
     },
     services: {
       google: { ...payload }
@@ -45,6 +45,7 @@ const createUserForGoogleAccounts = (payload: TokenPayload): Promise<IUserModel>
   if (errors) {
     throw new ClientError(500, errors.message);
   };
+
   return user.save();
 };
 
@@ -52,4 +53,4 @@ export default {
   getUserEmailFromGoogleToken,
   getGoogleDetails,
   createUserForGoogleAccounts
-}
+};

@@ -1,6 +1,10 @@
-import { UserModel } from "../models/user-model";
+import { IUserModel, UserModel } from "../models/user-model";
 
 class UsersLogic {
+
+  getUserById = async (user_id: string):Promise<IUserModel> => {
+    return UserModel.findById(user_id).select('-services').exec();
+  };
 
   changeTheme = async (user_id: string, theme: string) => {
     await UserModel.findByIdAndUpdate(user_id, {

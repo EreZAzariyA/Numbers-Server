@@ -5,7 +5,7 @@ import { IUserModel } from "../models/user-model";
 
 const secretKey = config.secretKey;
 
-function getNewToken(user: IUserModel, customExpiresIn?: string): string {
+function getNewToken(user: Partial<IUserModel>, customExpiresIn?: string): string {
   const token = jwt.sign(user, secretKey, { expiresIn: customExpiresIn || config.loginExpiresIn });
   return token;
 };
