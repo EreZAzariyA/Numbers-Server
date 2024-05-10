@@ -1,6 +1,18 @@
 import { Document, Schema, model } from "mongoose";
 import { Languages, ThemeColors, ThemeType } from "./theme-model";
 
+class Details {
+  accountNumber: string;
+  balance: number;
+};
+
+export class BankDetails {
+  bankName: string;
+  credentials: string;
+  details: Details;
+  lastConnection: number;
+};
+
 export interface IUserModel extends Document {
   profile: {
     first_name: string;
@@ -20,12 +32,7 @@ export interface IUserModel extends Document {
     'theme-color': ThemeType,
     lang: string
   };
-  bank?: {
-    bankName: string
-    credentials: string,
-    details: object,
-    lastConnection: number
-  };
+  bank?: BankDetails[];
   loginAttempts?: {
     lastAttemptDate: number,
     attempts: number
@@ -89,9 +96,10 @@ export const UserSchema = new Schema<IUserModel>({
       default: Languages.EN
     },
   },
-  bank: {
+  bank: [{
     bankName: {
       type: String,
+      unique: true
     },
     credentials: {
       type: String,
@@ -100,7 +108,7 @@ export const UserSchema = new Schema<IUserModel>({
       type: Object
     },
     lastConnection: Number
-  },
+  }],
   loginAttempts: {
     lastAttemptDate: Number,
     attempts: Number

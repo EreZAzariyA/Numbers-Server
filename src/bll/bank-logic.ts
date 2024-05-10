@@ -43,23 +43,25 @@ class BankLogic {
 
       let query: any;
       const setOne = {
-        'bank.lastConnection': new Date().valueOf(),
-        'bank.details': {
+        'lastConnection': new Date().valueOf(),
+        'details': {
           accountNumber: account.accountNumber,
           balance: account.balance
         },
       };
       const { exp, ...rest } = details;
       const setTwo = {
-        'bank.bankName': SupportedCompanies[details.companyId],
-        'bank.credentials': jwt.createNewToken(rest),
+        'bankName': SupportedCompanies[details.companyId],
+        'credentials': jwt.createNewToken(rest),
       };
 
       if (details.save) {
         query = {
-          $set: {
-            ...setOne,
-            ...setTwo
+          $push: {
+            bank: {
+              ...setOne,
+              ...setTwo
+            }
           }
         };
       }
