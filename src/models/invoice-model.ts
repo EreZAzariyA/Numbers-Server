@@ -1,3 +1,4 @@
+import { TransactionStatuses } from "israeli-bank-scrapers/lib/transactions";
 import { Document, Schema, model } from "mongoose";
 
 export interface IInvoiceModel extends Document {
@@ -14,23 +15,23 @@ const InvoiceSchema = new Schema<IInvoiceModel>({
   date: {
     type: String,
     trim: true,
-    // required: [true, "Date is missing"],
+    required: [true, "Date is missing"],
   },
   category_id: {
     type: Schema.Types.ObjectId,
-    // required: [true, "Category id is missing"],
+    required: [true, "Category id is missing"],
   },
   description: {
     type: String,
-    // required: [true, "Description is missing"],
+    required: [true, "Description is missing"],
   },
   amount: {
     type: Number,
-    // required: [true, "Amount is missing"],
-    // min: [1, "Amount is to low"],
+    required: [true, "Amount is missing"],
   },
   status: {
-    type: String
+    type: String,
+    default: TransactionStatuses.Completed
   }
 }, {
   versionKey: false,

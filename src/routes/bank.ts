@@ -14,11 +14,22 @@ router.post('/fetch-bank-data/:user_id', async (req: Request, res: Response, nex
   }
 });
 
-router.post('/import-data/:user_id', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/import-transactions/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
     const transactions = req.body;
     const response = await bankLogic.importTransactions(transactions, user_id);
+    res.status(200).json(response);
+  } catch (err: any) {
+    next(err);
+  }
+});
+
+router.put('/update-bank-data/:user_id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user_id = req.params.user_id;
+    const { bankAccount_id } = req.body;
+    const response = await bankLogic.updateBankAccountDetails(bankAccount_id, user_id);
     res.status(200).json(response);
   } catch (err: any) {
     next(err);

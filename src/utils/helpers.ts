@@ -9,4 +9,5 @@ export enum ErrorMessages {
 
 export enum SupportedCompanies {
   discount = 'discount',
+  behatsdaa = 'behatsdaa'
 };

@@ -99,7 +99,6 @@ export const UserSchema = new Schema<IUserModel>({
   bank: [{
     bankName: {
       type: String,
-      unique: true
     },
     credentials: {
       type: String,

@@ -1,18 +1,59 @@
-import { CompanyTypes, ScraperCredentials, ScraperOptions, createScraper } from "israeli-bank-scrapers";
+import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers";
 import moment from "moment";
 import { UserModel } from "../models/user-model";
 import jwt from "../utils/jwt";
-import { Transaction, TransactionStatuses } from "israeli-bank-scrapers/lib/transactions";
+import { Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers/lib/transactions";
 import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
 import { SupportedCompanies } from "../utils/helpers";
 
-class BankLogic {
-  private lastYear = moment().subtract('1', 'years').calendar();
+class UserBankModel {
+  bankName: string;
+  credentials: string;
+  details: object;
+  lastConnection: number;
+};
 
-  fetchBankData = async (details: any, user_id: string) => {
+interface BankAccountDetails {
+  userBank: UserBankModel[];
+  account: TransactionsAccount;
+  newUserToken: string;
+};
+
+interface UserBankCredentialModel {
+  companyId: string;
+  id: string;
+  password: string;
+  num: string;
+  save: boolean
+};
+
+const getBankData = async (details: UserBankCredentialModel): Promise<ScraperScrapingResult> => {
+  const lastYear = moment().subtract('1', 'years').calendar();
+
+  const options: ScraperOptions = {
+    companyId: CompanyTypes[details.companyId],
+    startDate: new Date(lastYear),
+    combineInstallments: false,
+    showBrowser: false,
+  };
+
+  const credentials: ScraperCredentials = {
+    id: details.id,
+    password: details.password,
+    num: details.num
+  };
+
+  const scraper = createScraper(options);
+  const scrapeResult = await scraper.scrape(credentials);
+  return scrapeResult;
+};
+
+class BankLogic {
+
+  fetchBankData = async (details: UserBankCredentialModel, user_id: string): Promise<BankAccountDetails> => {
     const user = await UserModel.findById(user_id).exec();
     if (!user) {
       throw new ClientError(500, 'user not found');
@@ -22,22 +63,7 @@ class BankLogic {
       throw new ClientError(500, `Company ${details.companyId} is not supported`);
     }
 
-    const options: ScraperOptions = {
-      companyId: CompanyTypes[details.companyId],
-      startDate: new Date(this.lastYear),
-      combineInstallments: false,
-      showBrowser: false,
-    };
-
-    const credentials: ScraperCredentials = {
-      id: details.id,
-      password: details.password,
-      num: details.num
-    };
-
-    const scraper = createScraper(options);
-    const scrapeResult = await scraper.scrape(credentials);
-
+    const scrapeResult = await getBankData(details);
     if (scrapeResult.success) {
       const account = scrapeResult.accounts[0];
 
@@ -49,10 +75,9 @@ class BankLogic {
           balance: account.balance
         },
       };
-      const { exp, ...rest } = details;
       const setTwo = {
         'bankName': SupportedCompanies[details.companyId],
-        'credentials': jwt.createNewToken(rest),
+        'credentials': jwt.createNewToken(details),
       };
 
       if (details.save) {
@@ -119,27 +144,66 @@ class BankLogic {
     return inserted;
   };
 
-  // connectBank = async () => {
-  //   var request = require("request");
+  updateBankAccountDetails = async (bankAccount_id: string, user_id: string): Promise<BankAccountDetails> => {
+    const userAccount = await UserModel.findOne({_id: user_id, 'bank.$._id': bankAccount_id }, { 'bank': 1 }).exec();
+    if (!userAccount) {
+      throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
+    }
 
-  //   var options = { method: 'POST',
-  //     url: 'https://api.discountbank.co.il/prod/d/psd2/v1.0.6/consent/token',
-  //     qs: { client_id: '0c0442a1-9ffd-440b-9168-656f42baac1f' },
-  //     headers: 
-  //      { accept: 'application/json',
-  //        'content-type': 'application/x-www-form-urlencoded' },
-  //     form: 
-  //      { grant_type: 'client_credentials',
-  //        client_id: '318364478',
-  //        code: 'vomikuorumakawde',
-  //        code_verifier: 'pacazoma' } };
-    
-  //   request(options, function (error, response, body) {
-  //     if (error) return console.error('Failed: %s', error.message);
-    
-  //     console.log('Success: ', body);
-  //   });
-  // }
+    const userBankAccount = userAccount.bank[0];
+    const credentials = userBankAccount.credentials;
+    if (!credentials) {
+      throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
+    }
+
+    const decodedCredentials = await jwt.fetchBankCredentialsFromToken(credentials);
+    if (!decodedCredentials) {
+      throw new ClientError(500, 'Some error while trying to load decoded credentials. Please contact us');
+    }
+
+    const details = {
+      companyId: userBankAccount.bankName,
+      id: decodedCredentials.id,
+      password: decodedCredentials.password,
+      num: decodedCredentials.num,
+      save: decodedCredentials.save
+    }
+
+    const scrapeResult = await getBankData(details);
+    if (scrapeResult.success) {
+      const account = scrapeResult.accounts[0];
+
+      let query = { 
+        $set: {
+          bank: {
+            'lastConnection': new Date().valueOf(),
+            'details': {
+              accountNumber: account.accountNumber,
+              balance: account.balance
+            },
+            'bankName': SupportedCompanies[details.companyId],
+            'credentials': jwt.createNewToken(details),
+          }
+        }
+      };
+
+      try {
+        const user = await UserModel.findOneAndUpdate(
+          { _id: user_id, 'bank.$._id': bankAccount_id },
+          query,
+          { new: true }
+        ).select('-services').exec();
+
+        return {
+          userBank: user?.bank,
+          account,
+          newUserToken: jwt.getNewToken(user.toObject())
+        };
+      } catch (err: any) {
+        throw new ClientError(500, err.message);
+      }
+    }
+  };
 };
 
 const bankLogic = new BankLogic();

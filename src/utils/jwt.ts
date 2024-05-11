@@ -2,6 +2,8 @@ import { Request } from "express";
 import jwt, { JwtPayload, VerifyErrors } from "jsonwebtoken";
 import config from "./config";
 import { IUserModel } from "../models/user-model";
+import { CompanyTypes, ScraperCredentials } from "israeli-bank-scrapers";
+import { ScraperCredentialsTypes } from "./bank-utils";
 
 const secretKey = config.secretKey;
 
@@ -48,9 +50,15 @@ function getUserFromToken(request: Request): IUserModel {
   return user;
 };
 
+async function fetchBankCredentialsFromToken(token: string): Promise<{id: string, password: string, num: string, save: boolean}> {
+  const payload = jwt.decode(token);
+  return (payload as any);
+};
+
 export default {
   getNewToken,
   createNewToken,
   verifyToken,
-  getUserFromToken
+  getUserFromToken,
+  fetchBankCredentialsFromToken
 };
