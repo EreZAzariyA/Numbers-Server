@@ -1,11 +1,11 @@
 import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers";
 import moment from "moment";
-import { UserModel } from "../models/user-model";
+import { IUserModel, UserModel } from "../models/user-model";
 import jwt from "../utils/jwt";
 import { Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers/lib/transactions";
 import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
-import { InvoiceModel } from "../models/invoice-model";
+import { IInvoiceModel, InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
 import { SupportedCompanies } from "../utils/helpers";
 
@@ -20,7 +20,10 @@ interface BankAccountDetails {
   userBank: UserBankModel[];
   account: TransactionsAccount;
   newUserToken: string;
+  importedTransactions?: IInvoiceModel[]
 };
+
+export type AccountDetails = Pick<BankAccountDetails, "newUserToken" | "importedTransactions">;
 
 interface UserBankCredentialModel {
   companyId: string;
@@ -111,40 +114,7 @@ class BankLogic {
     }
   };
 
-  importTransactions = async (invoices: Transaction[], user_id: string) => {
-    let defCategory: ICategoryModel = await CategoryModel.findOne({ user_id, name: 'Others' }).exec();
-    if (!defCategory) {
-      const category = new CategoryModel({name: 'Others', user_id});
-      defCategory = await categoriesLogic.addNewCategory(category);
-    }
-
-    const invoicesToInsert = [];
-    for (const trans of invoices) {
-      const isExist = await InvoiceModel.findOne({ user_id, description: trans.description }).exec();
-      if (!isExist) {
-        let invoice = new InvoiceModel({
-          date: trans.date,
-          description: trans.description || '',
-          amount: trans.originalAmount || trans.chargedAmount,
-          status: trans.status || TransactionStatuses.Completed,
-          user_id: user_id,
-        });
-
-        if (!trans.category) {
-          invoice.category_id = defCategory._id;
-        } else {
-          invoice.category_id = trans.category;
-        }
-  
-        invoicesToInsert.push(invoice);
-      }
-    }
-
-    const inserted = await InvoiceModel.insertMany(invoicesToInsert);
-    return inserted;
-  };
-
-  updateBankAccountDetails = async (bankAccount_id: string, user_id: string): Promise<BankAccountDetails> => {
+  updateBankAccountDetails = async (bankAccount_id: string, user_id: string): Promise<AccountDetails> => {
     const userAccount = await UserModel.findOne({_id: user_id, 'bank.$._id': bankAccount_id }, { 'bank': 1 }).exec();
     if (!userAccount) {
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
@@ -169,9 +139,18 @@ class BankLogic {
       save: decodedCredentials.save
     }
 
+    let user: IUserModel = null;
+    let insertedInvoices = [];
     const scrapeResult = await getBankData(details);
     if (scrapeResult.success) {
       const account = scrapeResult.accounts[0];
+      if (account.txns && account.txns.length) {
+        try {
+          insertedInvoices = await this.importTransactions(account.txns, user_id);
+        } catch (err: any) {
+          throw new ClientError(500, 'No Tr')
+        }
+      }
 
       let query = { 
         $set: {
@@ -188,21 +167,60 @@ class BankLogic {
       };
 
       try {
-        const user = await UserModel.findOneAndUpdate(
+        user = await UserModel.findOneAndUpdate(
           { _id: user_id, 'bank.$._id': bankAccount_id },
           query,
           { new: true }
         ).select('-services').exec();
-
-        return {
-          userBank: user?.bank,
-          account,
-          newUserToken: jwt.getNewToken(user.toObject())
-        };
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
     }
+
+    return {
+      newUserToken: jwt.getNewToken(user.toObject()),
+      importedTransactions: insertedInvoices
+    };
+  };
+
+  importTransactions = async (invoices: Transaction[], user_id: string) => {
+    let defCategory: ICategoryModel = await CategoryModel.findOne({ user_id, name: 'Others' }).exec();
+    if (!defCategory) {
+      const category = new CategoryModel({ name: 'Others', user_id });
+      defCategory = await categoriesLogic.addNewCategory(category);
+    }
+
+    const invoicesToInsert = [];
+    for (const trans of invoices) {
+      const isExist = await InvoiceModel.findOne({
+        user_id,
+        date: trans.date,
+        identifier: trans.identifier,
+        status: trans.status,
+      }).exec();
+  
+      if (!isExist) {
+        let invoice = new InvoiceModel({
+          user_id,
+          date: trans.date,
+          identifier: trans.identifier,
+          description: trans.description || 'no description provide',
+          amount: trans.originalAmount || trans.chargedAmount,
+          status: trans.status || TransactionStatuses.Completed,
+        });
+
+        if (!trans.category) {
+          invoice.category_id = defCategory._id;
+        } else {
+          invoice.category_id = trans.category;
+        }
+  
+        invoicesToInsert.push(invoice);
+      }
+    }
+
+    const inserted = await InvoiceModel.insertMany(invoicesToInsert);
+    return inserted;
   };
 };
 

@@ -4,6 +4,7 @@ import { Document, Schema, model } from "mongoose";
 export interface IInvoiceModel extends Document {
   user_id: string;
   date: string;
+  identifier?: number;
   category_id: Schema.Types.ObjectId | any;
   description: string;
   amount: number;
@@ -16,6 +17,9 @@ const InvoiceSchema = new Schema<IInvoiceModel>({
     type: String,
     trim: true,
     required: [true, "Date is missing"],
+  },
+  identifier: {
+    type: Number
   },
   category_id: {
     type: Schema.Types.ObjectId,
