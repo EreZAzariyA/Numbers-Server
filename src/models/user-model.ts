@@ -48,6 +48,23 @@ export interface IUserModel extends Document {
   updatedAt: Date;
 };
 
+const EmailSchema = new Schema({
+  email: {
+    type: String,
+    required: [true, "Email is missing"],
+    unique: true,
+    trim: true,
+  },
+  isValidate: {
+    type: Boolean,
+    default: false,
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  }
+}, { _id: false });
+
 export const UserSchema = new Schema<IUserModel>({
   profile:{
     first_name: {
@@ -76,23 +93,7 @@ export const UserSchema = new Schema<IUserModel>({
     },
     google: Object
   },
-  emails: [{
-    email: {
-      type: String,
-      required: [true, "Email is missing"],
-      unique: true,
-      trim: true,
-    },
-    isValidate: {
-      type: Boolean,
-      default: false,
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-    _id: false
-  }],
+  emails: [EmailSchema],
   config: {
     'theme-color': {
       type: String,
@@ -109,7 +110,8 @@ export const UserSchema = new Schema<IUserModel>({
     details: {
       accountNumber: {
         type: String,
-        unique: true
+        unique: true,
+        sparse: true
       },
       balance: Number
     },

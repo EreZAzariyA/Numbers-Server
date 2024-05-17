@@ -2,7 +2,7 @@ import { TransactionStatuses } from "israeli-bank-scrapers/lib/transactions";
 import { Document, Schema, model } from "mongoose";
 
 export interface IInvoiceModel extends Document {
-  user_id: string;
+  user_id: Schema.Types.ObjectId;
   date: string;
   identifier?: number;
   category_id: Schema.Types.ObjectId | any;
@@ -12,7 +12,10 @@ export interface IInvoiceModel extends Document {
 };
 
 const InvoiceSchema = new Schema<IInvoiceModel>({
-  user_id: Schema.Types.ObjectId,
+  user_id: {
+    type: Schema.Types.ObjectId,
+    index: true
+  },
   date: {
     type: String,
     trim: true,

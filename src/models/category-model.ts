@@ -1,14 +1,15 @@
 import { Document, Schema, model } from "mongoose";
 
 export interface ICategoryModel extends Document {
-  // _id: Schema.Types.ObjectId;
-  user_id: String;
+  user_id: Schema.Types.ObjectId;
   name: String;
 };
 
 const CategorySchema = new Schema<ICategoryModel>({
-  // _id: Schema.Types.ObjectId,
-  user_id: Schema.Types.ObjectId,
+  user_id: {
+    type: Schema.Types.ObjectId,
+    index: true
+  },
   name: {
     type: String,
     trim: true,
