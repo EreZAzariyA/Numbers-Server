@@ -13,20 +13,22 @@ router.get("/:user_id", async (req: Request, res: Response, next: NextFunction) 
   }
 });
 
-router.post("/", async (req: Request, res: Response, next: NextFunction) => {
+router.post("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user_id = req.params.user_id;
     const category = req.body;
-    const addedCategory = await categoriesLogic.addNewCategory(category);
+    const addedCategory = await categoriesLogic.addNewCategory(category, user_id);
     res.status(201).json(addedCategory);
   } catch (err: any) {
     next(err);
   }
 });
 
-router.put("/", async (req: Request, res: Response, next: NextFunction) => {
+router.put("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user_id = req.params.user_id;
     const categoryToUpdate = req.body;
-    const updatedCategory = await categoriesLogic.updateCategory(categoryToUpdate);
+    const updatedCategory = await categoriesLogic.updateCategory(categoryToUpdate, user_id);
     res.status(201).json(updatedCategory);
   } catch (err: any) {
     next(err);

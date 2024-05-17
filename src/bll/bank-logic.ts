@@ -219,7 +219,7 @@ class BankLogic {
     let defCategory: ICategoryModel = await CategoryModel.findOne({ user_id, name: 'Others' }).exec();
     if (!defCategory) {
       const category = new CategoryModel({ name: 'Others', user_id });
-      defCategory = await categoriesLogic.addNewCategory(category);
+      defCategory = await categoriesLogic.addNewCategory(category, user_id);
     }
 
     const invoicesToInsert = [];
