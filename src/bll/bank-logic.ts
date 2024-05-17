@@ -1,6 +1,6 @@
 import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers";
 import moment from "moment";
-import { IUserModel, UserModel } from "../models/user-model";
+import { BalanceHistoryModel, IUserModel, UserModel } from "../models/user-model";
 import jwt from "../utils/jwt";
 import { Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers/lib/transactions";
 import { CategoryModel, ICategoryModel } from "../models/category-model";
@@ -70,6 +70,11 @@ class BankLogic {
     if (scrapeResult.success) {
       const account = scrapeResult.accounts[0];
 
+      const balanceHistory: BalanceHistoryModel = {
+        balance: account.balance,
+        date: new Date().valueOf()
+      };
+
       let query: any;
       const setOne = {
         'lastConnection': new Date().valueOf(),
@@ -77,10 +82,19 @@ class BankLogic {
           accountNumber: account.accountNumber,
           balance: account.balance
         },
+        balanceHistory
       };
       const setTwo = {
         'bankName': SupportedCompanies[details.companyId],
         'credentials': jwt.createNewToken(details),
+      };
+
+      query = {
+        $push: {
+          bank: {
+            ...setOne,
+          }
+        }
       };
 
       if (details.save) {
@@ -93,12 +107,17 @@ class BankLogic {
           }
         };
       }
-      if (details.save === false) {
+
+      if (!details.save) {
         query = { $unset: { ...setTwo } };
       }
 
       try {
-        const user = await UserModel.findByIdAndUpdate(user_id, query, { new: true }).select('-services').exec();
+        const user = await UserModel.findByIdAndUpdate(
+          user_id,
+          query,
+          { new: true }
+        ).select('-services').exec();
         const userBank = user?.bank;
         return {
           userBank,
@@ -115,19 +134,22 @@ class BankLogic {
   };
 
   updateBankAccountDetails = async (bankAccount_id: string, user_id: string): Promise<AccountDetails> => {
-    const userAccount = await UserModel.findOne({_id: user_id, 'bank.$._id': bankAccount_id }, { 'bank': 1 }).exec();
+    const userAccount = await UserModel.findOne({ _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } }, { 'bank': 1 }).exec();
     if (!userAccount) {
+      console.error('userAccount not found');
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
     }
 
     const userBankAccount = userAccount.bank[0];
     const credentials = userBankAccount.credentials;
     if (!credentials) {
+      console.error('credentials not found');
       throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
     }
 
     const decodedCredentials = await jwt.fetchBankCredentialsFromToken(credentials);
     if (!decodedCredentials) {
+      console.error('decodedCredentials not found');
       throw new ClientError(500, 'Some error while trying to load decoded credentials. Please contact us');
     }
 
@@ -152,9 +174,14 @@ class BankLogic {
         }
       }
 
-      let query = { 
+      const balanceHistory: BalanceHistoryModel = {
+        balance: account.balance,
+        date: new Date().valueOf()
+      };
+
+      let query = {
         $set: {
-          bank: {
+          'bank.$': {
             'lastConnection': new Date().valueOf(),
             'details': {
               accountNumber: account.accountNumber,
@@ -168,10 +195,12 @@ class BankLogic {
 
       try {
         user = await UserModel.findOneAndUpdate(
-          { _id: user_id, 'bank.$._id': bankAccount_id },
+          { _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } },
           query,
           { new: true }
         ).select('-services').exec();
+        user.bank[0].balanceHistory.push(balanceHistory);
+        await user.save();
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
@@ -194,10 +223,16 @@ class BankLogic {
     for (const trans of invoices) {
       const isExist = await InvoiceModel.findOne({
         user_id,
-        date: trans.date,
         identifier: trans.identifier,
-        status: trans.status,
       }).exec();
+      if (isExist && isExist.status !== trans.status) {
+        try {
+          isExist.status = trans.status;
+          await isExist.save();
+        } catch (err: any) {
+          throw new ClientError(500, `Some error while trying to update invoice ${isExist.identifier}`);
+        }
+      }
   
       if (!isExist) {
         let invoice = new InvoiceModel({

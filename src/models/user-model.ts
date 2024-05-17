@@ -6,11 +6,18 @@ class Details {
   balance: number;
 };
 
+export interface BalanceHistoryModel {
+  balance: number;
+  date: number;
+};
+
 export class BankDetails {
+  _id: string;
   bankName: string;
   credentials: string;
   details: Details;
   lastConnection: number;
+  balanceHistory?: BalanceHistoryModel[];
 };
 
 export interface IUserModel extends Document {
@@ -97,16 +104,20 @@ export const UserSchema = new Schema<IUserModel>({
     },
   },
   bank: [{
-    bankName: {
-      type: String,
-    },
-    credentials: {
-      type: String,
-    },
+    bankName: String,
+    credentials: String,
     details: {
-      type: Object
+      accountNumber: {
+        type: String,
+        unique: true
+      },
+      balance: Number
     },
-    lastConnection: Number
+    lastConnection: Number,
+    balanceHistory: [{
+      balance: Number,
+      date: Number,
+    }]
   }],
   loginAttempts: {
     lastAttemptDate: Number,
