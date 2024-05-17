@@ -7,7 +7,8 @@ export enum ErrorMessages {
   INCORRECT_PASSWORD = "Email or password are incorrect"
 }
 
-export enum SupportedCompanies {
-  discount = 'discount',
-  behatsdaa = 'behatsdaa'
+export const SupportedCompanies = {
+  [CompanyTypes.discount]: CompanyTypes.discount,
+  [CompanyTypes.max]: CompanyTypes.max,
+  [CompanyTypes.behatsdaa]: CompanyTypes.behatsdaa,
 };

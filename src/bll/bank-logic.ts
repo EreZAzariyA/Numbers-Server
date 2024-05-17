@@ -40,7 +40,7 @@ const getBankData = async (details: UserBankCredentialModel): Promise<ScraperScr
     companyId: CompanyTypes[details.companyId],
     startDate: new Date(lastYear),
     combineInstallments: false,
-    showBrowser: false,
+    showBrowser: true,
   };
 
   const credentials: ScraperCredentials = {
@@ -59,10 +59,12 @@ class BankLogic {
   fetchBankData = async (details: UserBankCredentialModel, user_id: string): Promise<BankAccountDetails> => {
     const user = await UserModel.findById(user_id).exec();
     if (!user) {
+      console.error('user not found');
       throw new ClientError(500, 'user not found');
     }
 
     if (!SupportedCompanies[details.companyId]) {
+      console.error(`Company ${details.companyId} is not supported`);
       throw new ClientError(500, `Company ${details.companyId} is not supported`);
     }
 
@@ -129,6 +131,7 @@ class BankLogic {
       }
     }
     else {
+      console.error('Some scrapper error:', scrapeResult.errorMessage);
       throw new Error(scrapeResult.errorType);
     }
   };
