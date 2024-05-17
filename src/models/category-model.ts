@@ -2,7 +2,8 @@ import { Document, Schema, model } from "mongoose";
 
 export interface ICategoryModel extends Document {
   user_id: Schema.Types.ObjectId;
-  name: String;
+  name: string;
+  expectedSpent: number;
 };
 
 const CategorySchema = new Schema<ICategoryModel>({
@@ -14,6 +15,12 @@ const CategorySchema = new Schema<ICategoryModel>({
     type: String,
     trim: true,
     required: [true, "Category name is missing"],
+  },
+  expectedSpent: {
+    type: Number,
+    trim: true,
+    required: [true, "Expected spent amount is missing"],
+    default: 0
   },
 }, {
   versionKey: false,
