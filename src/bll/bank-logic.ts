@@ -7,7 +7,7 @@ import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { IInvoiceModel, InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
-import { SupportedCompanies } from "../utils/helpers";
+import { SupportedCompanies } from "../utils/bank-utils";
 
 class UserBankModel {
   bankName: string;

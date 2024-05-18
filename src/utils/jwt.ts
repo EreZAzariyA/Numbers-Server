@@ -2,8 +2,6 @@ import { Request } from "express";
 import jwt, { JwtPayload, VerifyErrors } from "jsonwebtoken";
 import config from "./config";
 import { IUserModel } from "../models/user-model";
-import { CompanyTypes, ScraperCredentials } from "israeli-bank-scrapers";
-import { ScraperCredentialsTypes } from "./bank-utils";
 
 const secretKey = config.secretKey;
 
