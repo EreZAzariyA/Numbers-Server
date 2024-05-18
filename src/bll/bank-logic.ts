@@ -40,7 +40,7 @@ const getBankData = async (details: UserBankCredentialModel): Promise<ScraperScr
     companyId: CompanyTypes[details.companyId],
     startDate: new Date(lastYear),
     combineInstallments: false,
-    showBrowser: true,
+    showBrowser: false,
   };
 
   const credentials: ScraperCredentials = {
@@ -173,7 +173,8 @@ class BankLogic {
         try {
           insertedInvoices = await this.importTransactions(account.txns, user_id);
         } catch (err: any) {
-          throw new ClientError(500, 'No Tr')
+          console.log(err);
+          throw new ClientError(500, err.message);
         }
       }
 
@@ -202,8 +203,6 @@ class BankLogic {
           query,
           { new: true }
         ).select('-services').exec();
-        user.bank[0].balanceHistory.push(balanceHistory);
-        await user.save();
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
@@ -247,10 +246,16 @@ class BankLogic {
           status: trans.status || TransactionStatuses.Completed,
         });
 
-        if (!trans.category) {
+        const isCategoryExist = await CategoryModel.exists({ name: trans.CategoryDescription});
+
+        if (!trans.CategoryDescription) {
           invoice.category_id = defCategory._id;
+        } else if (isCategoryExist) {
+          invoice.category_id = isCategoryExist._id
         } else {
-          invoice.category_id = trans.category;
+          const newCategory = new CategoryModel({ name: trans?.CategoryDescription || 'test' });
+          const category = await categoriesLogic.addNewCategory(newCategory, user_id);
+          invoice.category_id = category._id;
         }
   
         invoicesToInsert.push(invoice);
