@@ -1,5 +1,3 @@
-import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers";
-import moment from "moment";
 import { BalanceHistoryModel, IUserModel, UserModel } from "../models/user-model";
 import jwt from "../utils/jwt";
 import { Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers/lib/transactions";
@@ -7,7 +5,7 @@ import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { IInvoiceModel, InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
-import { SupportedCompanies, createCredentials } from "../utils/bank-utils";
+import { SupportedCompanies, createQuery, getBankData } from "../utils/bank-utils";
 import { ErrorMessages } from "../utils/helpers";
 
 class UserBankModel {
@@ -35,24 +33,6 @@ export interface UserBankCredentialModel {
   save: boolean
 };
 
-const getBankData = async (details: UserBankCredentialModel): Promise<ScraperScrapingResult> => {
-  const lastYear = moment().subtract('1', 'years').calendar();
-
-  const options: ScraperOptions = {
-    companyId: CompanyTypes[details.companyId],
-    startDate: new Date(lastYear),
-    combineInstallments: false,
-    showBrowser: false,
-    defaultTimeout: 10000
-  };
-
-  const credentials = createCredentials(details);
-
-  const scraper = createScraper(options);
-  const scrapeResult = await scraper.scrape(credentials);
-  return scrapeResult;
-};
-
 class BankLogic {
 
   fetchBankData = async (details: UserBankCredentialModel, user_id: string): Promise<BankAccountDetails> => {
@@ -69,25 +49,8 @@ class BankLogic {
     if (scrapeResult.success) {
       const account = scrapeResult.accounts[0];
 
-      const balanceHistory: BalanceHistoryModel = {
-        balance: account.balance,
-        date: new Date().valueOf()
-      };
-
       let query: any;
-      const setOne = {
-        'lastConnection': new Date().valueOf(),
-        'details': {
-          accountNumber: account.accountNumber,
-          balance: account.balance
-        },
-        balanceHistory
-      };
-      const setTwo = {
-        'bankName': SupportedCompanies[details.companyId],
-        'credentials': jwt.createNewToken(details),
-      };
-
+      const { setOne, setTwo } = createQuery(account, details);
       query = {
         $push: {
           bank: {
@@ -116,9 +79,9 @@ class BankLogic {
           query,
           { new: true }
         ).select('-services').exec();
-        const userBank = user?.bank;
+
         return {
-          userBank,
+          userBank: user?.bank,
           account,
           newUserToken: jwt.createNewToken(user.toObject())
         };
@@ -134,7 +97,6 @@ class BankLogic {
   updateBankAccountDetails = async (bankAccount_id: string, user_id: string): Promise<AccountDetails> => {
     const userAccount = await UserModel.findOne({ _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } }, { 'bank': 1 }).exec();
     if (!userAccount) {
-      console.error('userAccount not found');
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
     }
 
@@ -154,7 +116,8 @@ class BankLogic {
       id: decodedCredentials.id,
       password: decodedCredentials.password,
       num: decodedCredentials.num,
-      save: decodedCredentials.save
+      save: decodedCredentials.save,
+      username: decodedCredentials.username
     }
 
     let user: IUserModel = null;
@@ -164,30 +127,21 @@ class BankLogic {
       const account = scrapeResult.accounts[0];
       if (account.txns && account.txns.length) {
         try {
-          insertedInvoices = await this.importTransactions(account.txns, user_id);
+          insertedInvoices = await this.importTransactions(account.txns, user_id, details.companyId);
         } catch (err: any) {
           throw new ClientError(500, err.message);
         }
       }
 
-      const balanceHistory: BalanceHistoryModel = {
-        balance: account.balance,
-        date: new Date().valueOf()
-      };
-
-      let query = {
+      const { setOne, setTwo } = createQuery(account, details);
+      const query = {
         $set: {
           'bank.$': {
-            'lastConnection': new Date().valueOf(),
-            'details': {
-              accountNumber: account.accountNumber,
-              balance: account.balance
-            },
-            'bankName': SupportedCompanies[details.companyId],
-            'credentials': jwt.createNewToken(details),
+            ...setOne,
+            ...setTwo
           }
         }
-      };
+      }
 
       try {
         user = await UserModel.findOneAndUpdate(
@@ -206,7 +160,7 @@ class BankLogic {
     };
   };
 
-  importTransactions = async (transactions: Transaction[], user_id: string) => {
+  importTransactions = async (transactions: Transaction[], user_id: string, companyId: string) => {
     let defCategory: ICategoryModel = await CategoryModel.findOne({ user_id, name: 'Others' }).exec();
     if (!defCategory) {
       const category = new CategoryModel({ name: 'Others', user_id });
@@ -215,14 +169,16 @@ class BankLogic {
 
     const invoicesToInsert = [];
     for (const transaction of transactions) {
+      const { identifier, status, date, originalAmount, chargedAmount } = transaction;
+
       const currentInvoice = await InvoiceModel.findOne({
         user_id,
-        identifier: transaction.identifier,
+        identifier,
       }).exec();
 
-      if (currentInvoice && currentInvoice.status !== transaction.status) {
+      if (currentInvoice && currentInvoice.status !== status) {
         try {
-          currentInvoice.status = transaction.status;
+          currentInvoice.status = status;
           await currentInvoice.save();
         } catch (err: any) {
           throw new ClientError(500, `Some error while trying to update invoice ${currentInvoice.identifier}`);
@@ -232,11 +188,12 @@ class BankLogic {
       if (!currentInvoice) {
         let invoice = new InvoiceModel({
           user_id,
-          date: transaction.date,
-          identifier: transaction.identifier,
+          companyId,
+          date,
+          identifier,
           description: transaction.description || 'no description provide',
-          amount: transaction.originalAmount || transaction.chargedAmount,
-          status: transaction.status || TransactionStatuses.Completed,
+          amount: originalAmount || chargedAmount,
+          status: status || TransactionStatuses.Completed,
         });
 
         const isCategoryExist = await CategoryModel.exists({ name: transaction.CategoryDescription});
