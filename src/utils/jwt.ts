@@ -48,7 +48,7 @@ function getUserFromToken(request: Request): IUserModel {
   return user;
 };
 
-async function fetchBankCredentialsFromToken(token: string): Promise<{id: string, password: string, num: string, save: boolean}> {
+async function fetchBankCredentialsFromToken(token: string): Promise<{ id: string, password: string, num: string, save: boolean, username: string }> {
   const payload = jwt.decode(token);
   return (payload as any);
 };

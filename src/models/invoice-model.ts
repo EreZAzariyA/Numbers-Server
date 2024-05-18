@@ -1,3 +1,4 @@
+import { CompanyTypes } from "israeli-bank-scrapers";
 import { TransactionStatuses } from "israeli-bank-scrapers/lib/transactions";
 import { Document, Schema, model } from "mongoose";
 
@@ -8,7 +9,8 @@ export interface IInvoiceModel extends Document {
   category_id: Schema.Types.ObjectId | any;
   description: string;
   amount: number;
-  status: string
+  status: string;
+  companyId: CompanyTypes
 };
 
 const InvoiceSchema = new Schema<IInvoiceModel>({
@@ -39,6 +41,9 @@ const InvoiceSchema = new Schema<IInvoiceModel>({
   status: {
     type: String,
     default: TransactionStatuses.Completed
+  },
+  companyId: {
+    type: String
   }
 }, {
   versionKey: false,
