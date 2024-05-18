@@ -7,7 +7,8 @@ import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { IInvoiceModel, InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
-import { SupportedCompanies } from "../utils/bank-utils";
+import { SupportedCompanies, createCredentials } from "../utils/bank-utils";
+import { ErrorMessages } from "../utils/helpers";
 
 class UserBankModel {
   bankName: string;
@@ -25,10 +26,11 @@ interface BankAccountDetails {
 
 export type AccountDetails = Pick<BankAccountDetails, "newUserToken" | "importedTransactions">;
 
-interface UserBankCredentialModel {
+export interface UserBankCredentialModel {
   companyId: string;
   id: string;
   password: string;
+  username?: string;
   num: string;
   save: boolean
 };
@@ -41,13 +43,10 @@ const getBankData = async (details: UserBankCredentialModel): Promise<ScraperScr
     startDate: new Date(lastYear),
     combineInstallments: false,
     showBrowser: false,
+    defaultTimeout: 10000
   };
 
-  const credentials: ScraperCredentials = {
-    id: details.id,
-    password: details.password,
-    num: details.num
-  };
+  const credentials = createCredentials(details);
 
   const scraper = createScraper(options);
   const scrapeResult = await scraper.scrape(credentials);
@@ -59,13 +58,11 @@ class BankLogic {
   fetchBankData = async (details: UserBankCredentialModel, user_id: string): Promise<BankAccountDetails> => {
     const user = await UserModel.findById(user_id).exec();
     if (!user) {
-      console.error('user not found');
-      throw new ClientError(500, 'user not found');
+      throw new ClientError(500, ErrorMessages.USER_NOT_FOUND);
     }
 
     if (!SupportedCompanies[details.companyId]) {
-      console.error(`Company ${details.companyId} is not supported`);
-      throw new ClientError(500, `Company ${details.companyId} is not supported`);
+      throw new ClientError(500, `${ErrorMessages.COMPANY_NOT_SUPPORTED} - ${details.companyId}`);
     }
 
     const scrapeResult = await getBankData(details);
@@ -109,7 +106,6 @@ class BankLogic {
           }
         };
       }
-
       if (!details.save) {
         query = { $unset: { ...setTwo } };
       }
@@ -131,8 +127,7 @@ class BankLogic {
       }
     }
     else {
-      console.error('Some scrapper error:', scrapeResult.errorMessage);
-      throw new Error(scrapeResult.errorType);
+      throw new ClientError(500, `Some scrapper error: ${scrapeResult.errorMessage || scrapeResult.errorType}`);
     }
   };
 
@@ -146,13 +141,11 @@ class BankLogic {
     const userBankAccount = userAccount.bank[0];
     const credentials = userBankAccount.credentials;
     if (!credentials) {
-      console.error('credentials not found');
       throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
     }
 
     const decodedCredentials = await jwt.fetchBankCredentialsFromToken(credentials);
     if (!decodedCredentials) {
-      console.error('decodedCredentials not found');
       throw new ClientError(500, 'Some error while trying to load decoded credentials. Please contact us');
     }
 
@@ -173,7 +166,6 @@ class BankLogic {
         try {
           insertedInvoices = await this.importTransactions(account.txns, user_id);
         } catch (err: any) {
-          console.log(err);
           throw new ClientError(500, err.message);
         }
       }
@@ -214,7 +206,7 @@ class BankLogic {
     };
   };
 
-  importTransactions = async (invoices: Transaction[], user_id: string) => {
+  importTransactions = async (transactions: Transaction[], user_id: string) => {
     let defCategory: ICategoryModel = await CategoryModel.findOne({ user_id, name: 'Others' }).exec();
     if (!defCategory) {
       const category = new CategoryModel({ name: 'Others', user_id });
@@ -222,38 +214,39 @@ class BankLogic {
     }
 
     const invoicesToInsert = [];
-    for (const trans of invoices) {
-      const isExist = await InvoiceModel.findOne({
+    for (const transaction of transactions) {
+      const currentInvoice = await InvoiceModel.findOne({
         user_id,
-        identifier: trans.identifier,
+        identifier: transaction.identifier,
       }).exec();
-      if (isExist && isExist.status !== trans.status) {
+
+      if (currentInvoice && currentInvoice.status !== transaction.status) {
         try {
-          isExist.status = trans.status;
-          await isExist.save();
+          currentInvoice.status = transaction.status;
+          await currentInvoice.save();
         } catch (err: any) {
-          throw new ClientError(500, `Some error while trying to update invoice ${isExist.identifier}`);
+          throw new ClientError(500, `Some error while trying to update invoice ${currentInvoice.identifier}`);
         }
       }
   
-      if (!isExist) {
+      if (!currentInvoice) {
         let invoice = new InvoiceModel({
           user_id,
-          date: trans.date,
-          identifier: trans.identifier,
-          description: trans.description || 'no description provide',
-          amount: trans.originalAmount || trans.chargedAmount,
-          status: trans.status || TransactionStatuses.Completed,
+          date: transaction.date,
+          identifier: transaction.identifier,
+          description: transaction.description || 'no description provide',
+          amount: transaction.originalAmount || transaction.chargedAmount,
+          status: transaction.status || TransactionStatuses.Completed,
         });
 
-        const isCategoryExist = await CategoryModel.exists({ name: trans.CategoryDescription});
+        const isCategoryExist = await CategoryModel.exists({ name: transaction.CategoryDescription});
 
-        if (!trans.CategoryDescription) {
+        if (!transaction.CategoryDescription) {
           invoice.category_id = defCategory._id;
         } else if (isCategoryExist) {
           invoice.category_id = isCategoryExist._id
         } else {
-          const newCategory = new CategoryModel({ name: trans?.CategoryDescription || 'test' });
+          const newCategory = new CategoryModel({ name: transaction?.CategoryDescription || '' });
           const category = await categoriesLogic.addNewCategory(newCategory, user_id);
           invoice.category_id = category._id;
         }
