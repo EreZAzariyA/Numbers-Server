@@ -1,4 +1,4 @@
-import { BalanceHistoryModel, IUserModel, UserModel } from "../models/user-model";
+import { IUserModel, UserModel } from "../models/user-model";
 import jwt from "../utils/jwt";
 import { Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers/lib/transactions";
 import { CategoryModel, ICategoryModel } from "../models/category-model";

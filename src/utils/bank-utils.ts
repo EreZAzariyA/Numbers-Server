@@ -71,7 +71,9 @@ export const createQuery = (account: TransactionsAccount, details: UserBankCrede
     'details': {
       accountNumber: account.accountNumber,
       balance: account.balance
-    }
+    },
+    extraInfo: account.info,
+    pastOrFutureDebits: account.pastOrFutureDebits
   };
 
   const setTwo = {

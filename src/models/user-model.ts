@@ -18,6 +18,8 @@ export class BankDetails {
   details: Details;
   lastConnection: number;
   balanceHistory?: BalanceHistoryModel[];
+  extraInfo?: any;
+  futureDebits?: any;
 };
 
 export interface IUserModel extends Document {
@@ -119,7 +121,9 @@ export const UserSchema = new Schema<IUserModel>({
     balanceHistory: [{
       balance: Number,
       date: Number,
-    }]
+    }],
+    extraInfo: Object,
+    pastOrFutureDebits: Object
   }],
   loginAttempts: {
     lastAttemptDate: Number,
