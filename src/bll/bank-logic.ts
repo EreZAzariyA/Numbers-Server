@@ -147,7 +147,7 @@ class BankLogic {
         user = await UserModel.findOneAndUpdate(
           { _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } },
           query,
-          { new: true }
+          { new: true, upsert: true }
         ).select('-services').exec();
       } catch (err: any) {
         throw new ClientError(500, err.message);
