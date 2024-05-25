@@ -1,5 +1,3 @@
-import { CompanyTypes } from "israeli-bank-scrapers";
-
 export const MAX_LOGIN_ATTEMPTS = 5;
 
 export enum ErrorMessages {

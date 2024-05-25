@@ -1,5 +1,5 @@
-import { CompanyTypes } from "israeli-bank-scrapers";
-import { TransactionStatuses } from "israeli-bank-scrapers/lib/transactions";
+import { CompanyTypes } from "israeli-bank-scrapers-by-e.a";
+import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { Document, Schema, model } from "mongoose";
 
 export interface IInvoiceModel extends Document {

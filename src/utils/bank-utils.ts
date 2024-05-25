@@ -1,11 +1,10 @@
 import moment from "moment";
-import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers";
+import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers-by-e.a";
 import { UserBankCredentialModel } from "../bll/bank-logic";
 import ClientError from "../models/client-error";
 import { ErrorMessages } from "./helpers";
-import { TransactionsAccount } from "israeli-bank-scrapers/lib/transactions";
+import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "./jwt";
-import { BalanceHistoryModel } from "../models/user-model";
 
 export const SupportedCompanies = {
   [CompanyTypes.discount]: CompanyTypes.discount,
@@ -61,11 +60,6 @@ export const getBankData = async (details: UserBankCredentialModel): Promise<Scr
 export const createQuery = (account: TransactionsAccount, details: UserBankCredentialModel): {setOne: any, setTwo: any} => {
   const date = new Date().valueOf();
 
-  const balanceHistory: BalanceHistoryModel = {
-    balance: account.balance,
-    date
-  };
-
   const setOne = {
     'lastConnection': date,
     'details': {
@@ -73,7 +67,8 @@ export const createQuery = (account: TransactionsAccount, details: UserBankCrede
       balance: account.balance
     },
     extraInfo: account.info,
-    pastOrFutureDebits: account.pastOrFutureDebits
+    pastOrFutureDebits: account.pastOrFutureDebits,
+    cardsPastOrFutureDebit: account.cardsPastOrFutureDebit
   };
 
   const setTwo = {

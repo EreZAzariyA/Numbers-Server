@@ -1,12 +1,12 @@
 import { IUserModel, UserModel } from "../models/user-model";
 import jwt from "../utils/jwt";
-import { Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers/lib/transactions";
 import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { IInvoiceModel, InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
 import { SupportedCompanies, createQuery, getBankData } from "../utils/bank-utils";
 import { ErrorMessages } from "../utils/helpers";
+import { Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 
 class UserBankModel {
   bankName: string;
@@ -149,6 +149,11 @@ class BankLogic {
           query,
           { new: true, upsert: true }
         ).select('-services').exec();
+
+        if (!user) {
+          throw new ClientError(500, "Some error on: 'UserModel.findOneAndUpdate' - trying to update null user");
+        }
+
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
@@ -196,14 +201,14 @@ class BankLogic {
           status: status || TransactionStatuses.Completed,
         });
 
-        const isCategoryExist = await CategoryModel.exists({ name: transaction.CategoryDescription});
+        const isCategoryExist = await CategoryModel.exists({ name: transaction.categoryDescription});
 
-        if (!transaction.CategoryDescription) {
+        if (!transaction.categoryDescription) {
           invoice.category_id = defCategory._id;
         } else if (isCategoryExist) {
           invoice.category_id = isCategoryExist._id
         } else {
-          const newCategory = new CategoryModel({ name: transaction?.CategoryDescription || '' });
+          const newCategory = new CategoryModel({ name: transaction?.categoryDescription || '' });
           const category = await categoriesLogic.addNewCategory(newCategory, user_id);
           invoice.category_id = category._id;
         }
