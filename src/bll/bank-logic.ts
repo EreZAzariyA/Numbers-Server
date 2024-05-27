@@ -49,7 +49,7 @@ class BankLogic {
     if (scrapeResult.success) {
       const account = scrapeResult.accounts[0];
 
-      let query: any;
+      let query = {};
       const { setOne, setTwo } = createQuery(account, details);
       query = {
         $push: {
@@ -191,7 +191,7 @@ class BankLogic {
       }
   
       if (!currentInvoice) {
-        let invoice = new InvoiceModel({
+        const invoice = new InvoiceModel({
           user_id,
           companyId,
           date,

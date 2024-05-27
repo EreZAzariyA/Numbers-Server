@@ -1,5 +1,5 @@
 import cors from "cors";
-import express, { NextFunction, Request, Response } from "express";
+import express, { Response } from "express";
 import connectToMongoDB from "./dal/dal";
 import errorsHandler from "./middlewares/errors-handler";
 import authenticationRouter from "./routes/authentication";

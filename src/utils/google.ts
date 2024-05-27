@@ -1,4 +1,4 @@
-import { CredentialRequest, TokenPayload } from "google-auth-library";
+import { TokenPayload } from "google-auth-library";
 import ClientError from "../models/client-error";
 import { IUserModel, UserModel } from "../models/user-model";
 import { googleClient } from "../dal/google";

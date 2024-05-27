@@ -1,5 +1,5 @@
 import { Request } from "express";
-import jwt, { JwtPayload, VerifyErrors } from "jsonwebtoken";
+import jwt, { VerifyErrors } from "jsonwebtoken";
 import config from "./config";
 import { IUserModel } from "../models/user-model";
 
@@ -27,7 +27,7 @@ function verifyToken(request: Request): Promise<boolean> {
         resolve(false);
         return;
       }
-      jwt.verify(token, secretKey, (err: VerifyErrors, payload: JwtPayload) => { // payload = { user: { firstName: ___, } }
+      jwt.verify(token, secretKey, (err: VerifyErrors) => {
         if (err) {
           resolve(false);
           return;
