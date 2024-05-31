@@ -4,9 +4,9 @@ import { CategoryModel, ICategoryModel } from "../models/category-model";
 import categoriesLogic from "./categories-logic";
 import { IInvoiceModel, InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
-import { SupportedCompanies, createQuery, getBankData } from "../utils/bank-utils";
-import { ErrorMessages } from "../utils/helpers";
-import { Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { SupportedCompanies, createQuery, createUpdateQuery, getBankData } from "../utils/bank-utils";
+import { ErrorMessages, isArrayAndNotEmpty } from "../utils/helpers";
+import { PastOrFutureDebitType, Transaction, TransactionStatuses, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 
 class UserBankModel {
   bankName: string;
@@ -64,7 +64,8 @@ class BankLogic {
           $push: {
             bank: {
               ...setOne,
-              ...setTwo
+              ...setTwo,
+              pastOrFutureDebits: account.pastOrFutureDebits
             }
           }
         };
@@ -95,13 +96,16 @@ class BankLogic {
   };
 
   updateBankAccountDetails = async (bankAccount_id: string, user_id: string): Promise<AccountDetails> => {
-    const userAccount = await UserModel.findOne({ _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } }, { 'bank': 1 }).exec();
+    const userAccount = await UserModel.findOne(
+      { _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } },
+      { 'bank': 1 }
+    ).exec();
     if (!userAccount) {
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
     }
 
     const userBankAccount = userAccount.bank[0];
-    const credentials = userBankAccount.credentials;
+    const credentials = userBankAccount?.credentials;
     if (!credentials) {
       throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
     }
@@ -122,12 +126,21 @@ class BankLogic {
 
     let user: IUserModel = null;
     let insertedInvoices = [];
+    let pastOrFutureDebits = [];
+
     const scrapeResult = await getBankData(details);
     if (scrapeResult.success) {
       const account = scrapeResult.accounts[0];
-      if (account.txns && account.txns.length) {
+      if (account.txns && isArrayAndNotEmpty(account.txns)) {
         try {
           insertedInvoices = await this.importTransactions(account.txns, user_id, details.companyId);
+        } catch (err: any) {
+          throw new ClientError(500, err.message);
+        }
+      }
+      if (account.pastOrFutureDebits && isArrayAndNotEmpty(account.pastOrFutureDebits)) {
+        try {
+          pastOrFutureDebits = await this.importPastOrFutureDebits(user_id, userBankAccount._id, account.pastOrFutureDebits);
         } catch (err: any) {
           throw new ClientError(500, err.message);
         }
@@ -138,10 +151,11 @@ class BankLogic {
         $set: {
           'bank.$': {
             ...setOne,
-            ...setTwo
+            ...setTwo,
+            pastOrFutureDebits
           }
         }
-      }
+      };
 
       try {
         user = await UserModel.findOneAndUpdate(
@@ -219,6 +233,21 @@ class BankLogic {
 
     const inserted = await InvoiceModel.insertMany(invoicesToInsert);
     return inserted;
+  };
+
+  importPastOrFutureDebits = async (user_id:string, bank_id: string, pastOrFutureDebits: PastOrFutureDebitType[]): Promise<PastOrFutureDebitType[]> => {
+    const bankAccount = await UserModel.findOne(
+      { _id: user_id, 'bank._id': bank_id.toString() },
+      { 'bank.$': 1 }
+    ).exec();
+    const bankPastOrFutureDebits = bankAccount.bank[0].pastOrFutureDebits;
+
+    pastOrFutureDebits.forEach((debit) => {
+      if (bankPastOrFutureDebits.filter((d) => d.debitMonth === debit.debitMonth).length === 0) {
+        bankAccount.bank[0].pastOrFutureDebits.push(debit);
+      }
+    });
+    return bankPastOrFutureDebits;
   };
 };
 

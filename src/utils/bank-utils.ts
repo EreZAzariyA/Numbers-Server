@@ -67,7 +67,7 @@ export const createQuery = (account: TransactionsAccount, details: UserBankCrede
       balance: account.balance
     },
     extraInfo: account.info,
-    pastOrFutureDebits: account.pastOrFutureDebits,
+    // pastOrFutureDebits: account.pastOrFutureDebits,
     cardsPastOrFutureDebit: account.cardsPastOrFutureDebit
   };
 
@@ -80,4 +80,20 @@ export const createQuery = (account: TransactionsAccount, details: UserBankCrede
     setOne,
     setTwo
   }
+}
+
+export const createUpdateQuery = (account: TransactionsAccount): object => {
+  const date = new Date().valueOf();
+
+  const query = {
+    'bank.$.lastConnection': date,
+    'bank.$.details': {
+      accountNumber: account.accountNumber,
+      balance: account.balance
+    },
+    'bank.$.extraInfo': account.info,
+    'bank.$.cardsPastOrFutureDebit': account.cardsPastOrFutureDebit
+  };
+
+  return query
 }

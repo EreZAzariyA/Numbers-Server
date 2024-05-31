@@ -14,7 +14,7 @@ export class BankDetails {
   details: Details;
   lastConnection: number;
   extraInfo?: AccountInfoType;
-  futureDebits?: PastOrFutureDebitType[];
+  pastOrFutureDebits?: PastOrFutureDebitType[];
   cardsPastOrFutureDebit: CardsPastOrFutureDebitType;
 };
 
@@ -37,7 +37,7 @@ export interface IUserModel extends Document {
     'theme-color': ThemeType,
     lang: string
   };
-  bank?: BankDetails[];
+  bank?: [BankDetails];
   loginAttempts?: {
     lastAttemptDate: number,
     attempts: number
@@ -115,7 +115,13 @@ export const UserSchema = new Schema<IUserModel>({
     },
     lastConnection: Number,
     extraInfo: Object,
-    pastOrFutureDebits: Object,
+    pastOrFutureDebits: [{
+      debitMonth: String,
+      monthlyNumberOfTransactions: Number,
+      monthlyNISDebitSum: Number,
+      monthlyUSDDebitSum: Number,
+      monthlyEURDebitSum: Number,
+    }],
     cardsPastOrFutureDebit: Object,
   }],
   loginAttempts: {
