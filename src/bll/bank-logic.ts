@@ -30,7 +30,7 @@ export interface UserBankCredentialModel {
   password: string;
   username?: string;
   num: string;
-  save: boolean
+  save: boolean;
 };
 
 class BankLogic {
@@ -240,8 +240,8 @@ class BankLogic {
       { _id: user_id, 'bank._id': bank_id.toString() },
       { 'bank.$': 1 }
     ).exec();
-    const bankPastOrFutureDebits = bankAccount.bank[0].pastOrFutureDebits;
 
+    const bankPastOrFutureDebits = bankAccount.bank[0].pastOrFutureDebits;
     pastOrFutureDebits.forEach((debit) => {
       if (bankPastOrFutureDebits.filter((d) => d.debitMonth === debit.debitMonth).length === 0) {
         bankAccount.bank[0].pastOrFutureDebits.push(debit);

@@ -1,6 +1,6 @@
 import { Document, Schema, model } from "mongoose";
 import { Languages, ThemeColors, ThemeType } from "./theme-model";
-import { AccountInfoType, CardsPastOrFutureDebitType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { AccountInfoType, CardBlockType, CardsPastOrFutureDebitType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 
 class Details {
   accountNumber: string;
@@ -13,9 +13,9 @@ export class BankDetails {
   credentials: string;
   details: Details;
   lastConnection: number;
-  extraInfo?: AccountInfoType;
-  pastOrFutureDebits?: PastOrFutureDebitType[];
-  cardsPastOrFutureDebit: CardsPastOrFutureDebitType;
+  extraInfo: AccountInfoType;
+  pastOrFutureDebits: PastOrFutureDebitType[];
+  creditCards: CardBlockType[];
 };
 
 export interface IUserModel extends Document {
@@ -122,7 +122,7 @@ export const UserSchema = new Schema<IUserModel>({
       monthlyUSDDebitSum: Number,
       monthlyEURDebitSum: Number,
     }],
-    cardsPastOrFutureDebit: Object,
+    creditCards: Array,
   }],
   loginAttempts: {
     lastAttemptDate: Number,

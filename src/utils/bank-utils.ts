@@ -67,8 +67,7 @@ export const createQuery = (account: TransactionsAccount, details: UserBankCrede
       balance: account.balance
     },
     extraInfo: account.info,
-    // pastOrFutureDebits: account.pastOrFutureDebits,
-    cardsPastOrFutureDebit: account.cardsPastOrFutureDebit
+    creditCards: account.cardsPastOrFutureDebit.cardsBlock
   };
 
   const setTwo = {
@@ -92,7 +91,7 @@ export const createUpdateQuery = (account: TransactionsAccount): object => {
       balance: account.balance
     },
     'bank.$.extraInfo': account.info,
-    'bank.$.cardsPastOrFutureDebit': account.cardsPastOrFutureDebit
+    'bank.$.creditCards': account.cardsPastOrFutureDebit.cardsBlock
   };
 
   return query
