@@ -8,7 +8,6 @@ import google from "../utils/google";
 import { ErrorMessages, MAX_LOGIN_ATTEMPTS } from "../utils/helpers";
 
 class AuthenticationLogic {
-  private loginAttempts = 0;
 
   signup = async (user: IUserModel): Promise<string> => {
     const newEncryptedPassword: string = await encryptPassword(user.services.password);
@@ -25,9 +24,7 @@ class AuthenticationLogic {
   };
 
   signin = async (credentials: CredentialsModel): Promise<string> => {
-    const user = await UserModel.findOne({
-      'emails.email': credentials.email
-    }).exec();
+    const user = await UserModel.findOne({ 'emails.email': credentials.email }).exec();
 
     if (!user) {
       throw new ClientError(500, ErrorMessages.INCORRECT_PASSWORD);
@@ -37,10 +34,10 @@ class AuthenticationLogic {
       throw new ClientError(500, ErrorMessages.MAX_LOGIN_ATTEMPTS);
     }
 
-    const passwordMatch = await comparePassword(credentials.password, user.services.password);
+    const passwordMatch = await comparePassword(credentials.password, user.services.password || '');
     if (!passwordMatch) {
       user.loginAttempts = {
-        attempts: user.loginAttempts.attempts + 1,
+        attempts: user.loginAttempts.attempts + 1 || 1,
         lastAttemptDate: new Date().valueOf()
       };
       await user.save({ validateBeforeSave: true });
@@ -53,22 +50,24 @@ class AuthenticationLogic {
     };
     await user.save({ validateBeforeSave: true });
 
-    const loggedUser = user.toObject();
-    const { services, ...restOfUser } = loggedUser;
+    const { services, ...restOfUser } = user.toObject();
     const token = jwt.getNewToken(restOfUser);
     return token;
   };
 
   google = async (userDetailsByGoogle: CredentialRequest): Promise<string> => {
     const email = await google.getUserEmailFromGoogleToken(userDetailsByGoogle.access_token);
-    const isSigned = await UserModel.exists({'emails.email': email}).exec();
-
+    const isSigned = await UserModel.exists({ 'emails.email': email }).exec();
     let user: IUserModel = null;
+
     if (isSigned) {
-      user = await UserModel.findOne({'emails.email': email}).select('-services').exec();
+      user = await UserModel.findOne({ 'emails.email': email }).select('-services').exec();
     } else {
       const payload = await google.getGoogleDetails(userDetailsByGoogle.access_token);
       user = await google.createUserForGoogleAccounts(payload);
+    }
+    if (!user) {
+      throw new ClientError(500, ErrorMessages.SOME_ERROR);
     }
 
     const token = jwt.getNewToken(user.toObject());

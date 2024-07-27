@@ -22,7 +22,7 @@ interface BankAccountDetails {
   importedTransactions?: IInvoiceModel[]
 };
 
-export type AccountDetails = Pick<BankAccountDetails, "newUserToken" | "importedTransactions">;
+export type AccountDetails = Pick<BankAccountDetails, "newUserToken" | "importedTransactions" | "account">;
 
 export interface UserBankCredentialModel {
   companyId: string;
@@ -95,7 +95,7 @@ class BankLogic {
     }
   };
 
-  updateBankAccountDetails = async (bankAccount_id: string, user_id: string): Promise<AccountDetails> => {
+  refreshBankData = async (bankAccount_id: string, user_id: string, newDetailsCredentials?: string): Promise<AccountDetails> => {
     const userAccount = await UserModel.findOne(
       { _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } },
       { 'bank': 1 }
@@ -105,7 +105,14 @@ class BankLogic {
     }
 
     const userBankAccount = userAccount.bank[0];
-    const credentials = userBankAccount?.credentials;
+    let credentials: any;
+
+    if (newDetailsCredentials) {
+      credentials = newDetailsCredentials
+    } else {
+      credentials = userBankAccount?.credentials;
+    }
+
     if (!credentials) {
       throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
     }
@@ -116,7 +123,7 @@ class BankLogic {
     }
 
     const details = {
-      companyId: userBankAccount.bankName,
+      companyId: decodedCredentials.companyId,
       id: decodedCredentials.id,
       password: decodedCredentials.password,
       num: decodedCredentials.num,
@@ -124,59 +131,155 @@ class BankLogic {
       username: decodedCredentials.username
     }
 
+    const scrapeResult = await getBankData(details);
+    if (scrapeResult.errorType || scrapeResult.errorMessage) {
+      throw new ClientError(500, scrapeResult.errorMessage);
+    }
+    if (!isArrayAndNotEmpty(scrapeResult.accounts)) {
+      throw new ClientError(500, 'No accounts');
+    }
+
+    const account = scrapeResult.accounts[0];
+
     let user: IUserModel = null;
     let insertedInvoices = [];
     let pastOrFutureDebits = [];
 
-    const scrapeResult = await getBankData(details);
-    if (scrapeResult.success) {
-      const account = scrapeResult.accounts[0];
-      if (account.txns && isArrayAndNotEmpty(account.txns)) {
-        try {
-          insertedInvoices = await this.importTransactions(account.txns, user_id, details.companyId);
-        } catch (err: any) {
-          throw new ClientError(500, err.message);
-        }
-      }
-      if (account.pastOrFutureDebits && isArrayAndNotEmpty(account.pastOrFutureDebits)) {
-        try {
-          pastOrFutureDebits = await this.importPastOrFutureDebits(user_id, userBankAccount._id, account.pastOrFutureDebits);
-        } catch (err: any) {
-          throw new ClientError(500, err.message);
-        }
-      }
-
-      const { setOne, setTwo } = createQuery(account, details);
-      const query = {
-        $set: {
-          'bank.$': {
-            ...setOne,
-            ...setTwo,
-            pastOrFutureDebits
-          }
-        }
-      };
-
+    if (account.txns && isArrayAndNotEmpty(account.txns)) {
       try {
-        user = await UserModel.findOneAndUpdate(
-          { _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } },
-          query,
-          { new: true, upsert: true }
-        ).select('-services').exec();
-
-        if (!user) {
-          throw new ClientError(500, "Some error on: 'UserModel.findOneAndUpdate' - trying to update null user");
-        }
-
+        insertedInvoices = await this.importTransactions(account.txns, user_id, details.companyId);
+      } catch (err: any) {
+        throw new ClientError(500, err.message);
+      }
+    }
+    if (account.pastOrFutureDebits && isArrayAndNotEmpty(account.pastOrFutureDebits)) {
+      try {
+        pastOrFutureDebits = await this.importPastOrFutureDebits(user_id, userBankAccount._id, account.pastOrFutureDebits);
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
     }
 
+    const { setOne, setTwo } = createQuery(account, details);
+    const query = {
+      $set: {
+        'bank.$': {
+          ...setOne,
+          ...setTwo,
+          pastOrFutureDebits
+        }
+      }
+    };
+
+    try {
+      user = await UserModel.findOneAndUpdate(
+        { _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } },
+        query,
+        { new: true, upsert: true }
+      ).select('-services').exec();
+
+      if (!user) {
+        throw new ClientError(500, "Some error on: 'UserModel.findOneAndUpdate' - trying to update null user");
+      }
+
+    } catch (err: any) {
+      throw new ClientError(500, err.message);
+    }
+
     return {
       newUserToken: jwt.getNewToken(user.toObject()),
-      importedTransactions: insertedInvoices
+      importedTransactions: insertedInvoices,
+      account
     };
+  };
+
+  updateBankAccountDetails = async (bankAccount_id: string, user_id: string, newDetails: UserBankCredentialModel) => {
+    const userAccount = await UserModel.findOne(
+      { _id: user_id, 'bank._id': bankAccount_id.toString() },
+      { 'bank.$': 1 }
+    ).exec();
+    if (!userAccount) {
+      throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
+    }
+
+    const bankAccount = userAccount.bank[0];
+    const credentials = bankAccount?.credentials;
+    if (!credentials) {
+      throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
+    }
+
+    const decodedCredentials = await jwt.fetchBankCredentialsFromToken(credentials);
+    if (!decodedCredentials) {
+      throw new ClientError(500, 'Some error while trying to load decoded credentials. Please contact us');
+    }
+
+    const oldCredentials = [];
+    oldCredentials.push(decodedCredentials);
+
+    const newDetailsCredentials = jwt.createNewToken(newDetails);
+
+    const res = await this.refreshBankData(bankAccount_id, user_id, newDetailsCredentials);
+    return res;
+
+    // const scrapeResult = await this.refreshBankData(newDetailsCredentials);
+    // if (scrapeResult.errorType || scrapeResult.errorMessage) {
+    //   throw new ClientError(500, scrapeResult.errorMessage);
+    // }
+    // if (!isArrayAndNotEmpty(scrapeResult.accounts)) {
+    //   throw new ClientError(500, 'No accounts');
+    // }
+
+    // const account = scrapeResult.accounts[0];
+
+    // let user: IUserModel = null;
+    // let insertedInvoices = [];
+    // let pastOrFutureDebits = [];
+
+    // if (account.txns && isArrayAndNotEmpty(account.txns)) {
+    //   try {
+    //     insertedInvoices = await this.importTransactions(account.txns, user_id, details.companyId);
+    //   } catch (err: any) {
+    //     throw new ClientError(500, err.message);
+    //   }
+    // }
+    // if (account.pastOrFutureDebits && isArrayAndNotEmpty(account.pastOrFutureDebits)) {
+    //   try {
+    //     pastOrFutureDebits = await this.importPastOrFutureDebits(user_id, userBankAccount._id, account.pastOrFutureDebits);
+    //   } catch (err: any) {
+    //     throw new ClientError(500, err.message);
+    //   }
+    // }
+
+    // const { setOne, setTwo } = createQuery(account, newDetails);
+    // const query = {
+    //   $set: {
+    //     'bank.$': {
+    //       ...setOne,
+    //       ...setTwo,
+    //       pastOrFutureDebits
+    //     }
+    //   }
+    // };
+
+    // try {
+    //   user = await UserModel.findOneAndUpdate(
+    //     { _id: user_id, bank: { $elemMatch: { _id: bankAccount_id } } },
+    //     query,
+    //     { new: true, upsert: true }
+    //   ).select('-services').exec();
+
+    //   if (!user) {
+    //     throw new ClientError(500, "Some error on: 'UserModel.findOneAndUpdate' - trying to update null user");
+    //   }
+
+    // } catch (err: any) {
+    //   throw new ClientError(500, err.message);
+    // }
+
+    // return {
+    //   newUserToken: jwt.getNewToken(user.toObject()),
+    //   importedTransactions: insertedInvoices
+    // };
   };
 
   importTransactions = async (transactions: Transaction[], user_id: string, companyId: string) => {

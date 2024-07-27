@@ -25,11 +25,22 @@ router.post('/import-transactions/:user_id', async (req: Request, res: Response,
   }
 });
 
-router.put('/update-bank-data/:user_id', async (req: Request, res: Response, next: NextFunction) => {
+router.put('/refresh-bank-data/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
     const { bankAccount_id } = req.body;
-    const response = await bankLogic.updateBankAccountDetails(bankAccount_id, user_id);
+    const response = await bankLogic.refreshBankData(bankAccount_id, user_id);
+    res.status(200).json(response);
+  } catch (err: any) {
+    next(err);
+  }
+});
+
+router.put('/update-bank-details/:user_id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user_id = req.params.user_id;
+    const { bankAccount_id, newCredentials } = req.body;
+    const response = await bankLogic.updateBankAccountDetails(bankAccount_id, user_id, newCredentials);
     res.status(200).json(response);
   } catch (err: any) {
     next(err);

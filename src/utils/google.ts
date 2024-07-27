@@ -32,9 +32,9 @@ const createUserForGoogleAccounts = (payload: TokenPayload): Promise<IUserModel>
       isValidate: payload.email_verified
     },
     profile: {
-      first_name: payload.given_name,
-      last_name: payload.family_name,
-      image_url: payload.picture
+      first_name: payload.given_name || '',
+      last_name: payload.family_name || '',
+      image_url: payload.picture || ''
     },
     services: {
       google: { ...payload }
@@ -43,7 +43,9 @@ const createUserForGoogleAccounts = (payload: TokenPayload): Promise<IUserModel>
 
   const errors = user.validateSync();
   if (errors) {
-    throw new ClientError(500, errors.message);
+    Object.keys(errors.errors).forEach((field) => {
+      throw new ClientError(500, errors.errors[field].message);
+    });
   };
 
   return user.save();

@@ -61,17 +61,18 @@ export const createQuery = (account: TransactionsAccount, details: UserBankCrede
   const date = new Date().valueOf();
 
   const setOne = {
-    'lastConnection': date,
-    'details': {
+    bankName: SupportedCompanies[details.companyId],
+    lastConnection: date,
+    details: {
       accountNumber: account.accountNumber,
       balance: account.balance
     },
     extraInfo: account.info,
-    creditCards: account.cardsPastOrFutureDebit.cardsBlock
+    creditCards: account.cardsPastOrFutureDebit.cardsBlock,
+    savings: account.saving
   };
 
   const setTwo = {
-    'bankName': SupportedCompanies[details.companyId],
     'credentials': jwt.createNewToken(details),
   };
 
@@ -83,7 +84,8 @@ export const createQuery = (account: TransactionsAccount, details: UserBankCrede
 
 export const createUpdateQuery = (account: TransactionsAccount): object => {
   const date = new Date().valueOf();
-
+  console.log(account);
+  
   const query = {
     'bank.$.lastConnection': date,
     'bank.$.details': {
@@ -91,7 +93,8 @@ export const createUpdateQuery = (account: TransactionsAccount): object => {
       balance: account.balance
     },
     'bank.$.extraInfo': account.info,
-    'bank.$.creditCards': account.cardsPastOrFutureDebit.cardsBlock
+    'bank.$.creditCards': account.cardsPastOrFutureDebit.cardsBlock,
+    'bank.$.savings': account.saving
   };
 
   return query
