@@ -1,10 +1,11 @@
 import moment from "moment";
 import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers-by-e.a";
-import { UserBankCredentialModel } from "../bll/bank-logic";
+import bankLogic, { UserBankCredentialModel } from "../bll/bank-logic";
 import ClientError from "../models/client-error";
 import { ErrorMessages } from "./helpers";
 import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "./jwt";
+import { UserBanks, IBanksModal } from "../models/bank-model";
 
 export const SupportedCompanies = {
   [CompanyTypes.discount]: CompanyTypes.discount,
@@ -57,45 +58,40 @@ export const getBankData = async (details: UserBankCredentialModel): Promise<Scr
   return scrapeResult;
 };
 
-export const createQuery = (account: TransactionsAccount, details: UserBankCredentialModel): {setOne: any, setTwo: any} => {
-  const date = new Date().valueOf();
+export const insertBankAccount = async (user_id: string, details: UserBankCredentialModel, account: TransactionsAccount): Promise<IBanksModal> => {
+  const query = createQuery(user_id, account, details);
 
-  const setOne = {
-    bankName: SupportedCompanies[details.companyId],
-    lastConnection: date,
-    details: {
-      accountNumber: account.accountNumber,
-      balance: account.balance
-    },
-    extraInfo: account.info,
-    creditCards: account.cardsPastOrFutureDebit.cardsBlock,
-    savings: account.saving
+  const options = {
+    userId: user_id,
+    'banks.bankName': details.companyId
   };
 
-  const setTwo = {
-    'credentials': jwt.createNewToken(details),
+  const projection = {
+    new: true,
+    upsert: true
   };
 
+  const bankAccounts = await UserBanks.findOneAndUpdate(options, query, projection).exec();
+  return bankAccounts;
+};
+
+export const createQuery = (userId: string, account: TransactionsAccount, details: UserBankCredentialModel): object => {
   return {
-    setOne,
-    setTwo
-  }
-}
-
-export const createUpdateQuery = (account: TransactionsAccount): object => {
-  const date = new Date().valueOf();
-  console.log(account);
-  
-  const query = {
-    'bank.$.lastConnection': date,
-    'bank.$.details': {
-      accountNumber: account.accountNumber,
-      balance: account.balance
-    },
-    'bank.$.extraInfo': account.info,
-    'bank.$.creditCards': account.cardsPastOrFutureDebit.cardsBlock,
-    'bank.$.savings': account.saving
+    $set: {
+      'banks.$.userId': userId,
+      'banks.$.bankName': SupportedCompanies[details.companyId],
+      'banks.$.lastConnection': new Date().valueOf(),
+      'banks.$.details': {
+        accountNumber: account.accountNumber,
+        balance: account.balance
+      },
+      'banks.$.extraInfo': account.info,
+      'banks.$.pastOrFutureDebits': account.pastOrFutureDebits,
+      'banks.$.creditCards': account.cardsPastOrFutureDebit.cardsBlock,
+      'banks.$.savings': account.saving,
+      ...(details.save && {
+        'banks.$.credentials': jwt.createNewToken(details)
+      })
+    }
   };
-
-  return query
-}
+};

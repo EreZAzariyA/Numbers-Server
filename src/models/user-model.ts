@@ -1,53 +1,8 @@
 import { Document, Schema, model } from "mongoose";
 import { Languages, ThemeColors, ThemeType } from "./theme-model";
-import { AccountInfoType, AccountSavesType, CardBlockType, CardsPastOrFutureDebitType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { EmailType, GoogleUserType } from "../utils/types";
 
-class Details {
-  accountNumber: string;
-  balance: number;
-};
-
-export class BankDetails {
-  _id: string;
-  bankName: string;
-  credentials: string;
-  details: Details;
-  lastConnection: number;
-  extraInfo: AccountInfoType;
-  pastOrFutureDebits: PastOrFutureDebitType[];
-  creditCards: CardBlockType[];
-  savings: AccountSavesType
-};
-
-export interface IUserModel extends Document {
-  profile: {
-    first_name: string;
-    last_name: string;
-    image_url?: string
-  };
-  services: {
-    password: string,
-    google?: any
-  };
-  emails: [{
-    email: string,
-    isValidate: boolean,
-    isActive: boolean
-  }];
-  config?: {
-    'theme-color': ThemeType,
-    lang: string
-  };
-  bank?: [BankDetails];
-  loginAttempts?: {
-    lastAttemptDate: number,
-    attempts: number
-  };
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-const EmailSchema = new Schema({
+const EmailSchema = new Schema<EmailType>({
   email: {
     type: String,
     required: [true, "Email is missing"],
@@ -63,6 +18,46 @@ const EmailSchema = new Schema({
     default: true,
   }
 }, { _id: false });
+
+const GoogleUserSchema = new Schema<GoogleUserType>({
+  sub: String,
+  name: String,
+  given_name: String,
+  family_name: String,
+  picture: String,
+  email: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  email_verified: {
+    type: Boolean,
+  },
+  locale: String
+}, { _id: false });
+
+export interface IUserModel extends Document {
+  profile: {
+    first_name: string;
+    last_name: string;
+    image_url?: string
+  };
+  services: {
+    password: string,
+    google?: GoogleUserType
+  };
+  emails: [EmailType];
+  config?: {
+    'theme-color': ThemeType,
+    lang: string
+  };
+  loginAttempts?: {
+    lastAttemptDate: number,
+    attempts: number
+  };
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 export const UserSchema = new Schema<IUserModel>({
   profile:{
@@ -90,7 +85,7 @@ export const UserSchema = new Schema<IUserModel>({
       type: String,
       trim: true,
     },
-    google: Object
+    google: GoogleUserSchema
   },
   emails: [EmailSchema],
   config: {
@@ -103,33 +98,6 @@ export const UserSchema = new Schema<IUserModel>({
       default: Languages.EN
     },
   },
-  bank: [{
-    bankName: String,
-    credentials: String,
-    details: {
-      accountNumber: {
-        type: String,
-        unique: true,
-        sparse: true
-      },
-      balance: Number
-    },
-    lastConnection: Number,
-    extraInfo: Object,
-    pastOrFutureDebits: [{
-      debitMonth: String,
-      monthlyNumberOfTransactions: Number,
-      monthlyNISDebitSum: Number,
-      monthlyUSDDebitSum: Number,
-      monthlyEURDebitSum: Number,
-    }],
-    creditCards: Array,
-    savings: {
-      businessDate: String,
-      currencyCode: String,
-      totalDepositsCurrentValue: Number,
-    }
-  }],
   loginAttempts: {
     lastAttemptDate: Number,
     attempts: {

@@ -5,8 +5,6 @@ class ClientError {
   public constructor(status: number, message: string) {
     this.status = status;
     this.message = message;
-
-    console.error(`${status} - ${message}`);
   };
 };
 
