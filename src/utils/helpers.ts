@@ -1,6 +1,7 @@
 export const MAX_LOGIN_ATTEMPTS = 5;
 
 export enum ErrorMessages {
+  NAME_IN_USE = "Name is already in use.",
   SOME_ERROR = "Some error, please contact us.",
   INCORRECT_LOGIN_ATTEMPT = "Incorrect ID or Password.",
   BANK_ACCOUNT_NOT_FOUND = "We did not found any bank account related to this ID",

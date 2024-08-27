@@ -1,11 +1,11 @@
 import moment from "moment";
 import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers-by-e.a";
-import bankLogic, { UserBankCredentialModel } from "../bll/bank-logic";
+import bankLogic, { UserBankCredentialModel } from "../bll/banks";
 import ClientError from "../models/client-error";
 import { ErrorMessages } from "./helpers";
 import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "./jwt";
-import { UserBanks, IBanksModal } from "../models/bank-model";
+import { UserBanks, IBanksModal, IBankModal, BankModel } from "../models/bank-model";
 
 export const SupportedCompanies = {
   [CompanyTypes.discount]: CompanyTypes.discount,
@@ -59,26 +59,64 @@ export const getBankData = async (details: UserBankCredentialModel): Promise<Scr
 };
 
 export const insertBankAccount = async (user_id: string, details: UserBankCredentialModel, account: TransactionsAccount): Promise<IBanksModal> => {
-  const query = createQuery(user_id, account, details);
+  const banksAccount = await bankLogic.fetchOneBankAccount(user_id, details.companyId);
+  if (!!banksAccount) {
+    const query = createUpdateQuery(user_id, account, details);
+    const options = {
+      user_id: user_id,
+      'banks.bankName': details.companyId
+    };
+    const projection = {
+      new: true,
+      upsert: true
+    };
 
-  const options = {
-    userId: user_id,
-    'banks.bankName': details.companyId
-  };
+    try {
+      const bankAccounts = await UserBanks.findOneAndUpdate(options, query, projection).exec();
+      return bankAccounts;
+    } catch (error: any) {
+      console.log(error);
+      return;
+    }
+  }
 
-  const projection = {
-    new: true,
-    upsert: true
-  };
+  const newBank = await createBank(details.companyId, details, account);
 
-  const bankAccounts = await UserBanks.findOneAndUpdate(options, query, projection).exec();
-  return bankAccounts;
+  const newBankAccount = new UserBanks({
+    user_id,
+    banks: [newBank]
+  });
+
+  const errors = newBankAccount.validateSync();
+  if (errors) {
+    console.log({errors});
+    throw new ClientError(500, errors.message);
+  }
+
+  return newBankAccount.save();
 };
 
-export const createQuery = (userId: string, account: TransactionsAccount, details: UserBankCredentialModel): object => {
+export const createBank = async (bankName: string, credentialsDetails: UserBankCredentialModel, account: TransactionsAccount) => {
+  const bankAccount = new BankModel({
+    bankName,
+    credentials: jwt.createNewToken(credentialsDetails),
+    details: {
+      accountNumber: account.accountNumber,
+      balance: account.balance
+    },
+    extraInfo: account.info,
+    pastOrFutureDebits: account.pastOrFutureDebits,
+    creditCards: account.cardsPastOrFutureDebit.cardsBlock,
+    savings: account.saving
+  });
+
+  return bankAccount;
+}
+
+export const createUpdateQuery = (user_id: string, account: TransactionsAccount, details: UserBankCredentialModel): object => {
   return {
     $set: {
-      'banks.$.userId': userId,
+      'banks.$.user_id': user_id,
       'banks.$.bankName': SupportedCompanies[details.companyId],
       'banks.$.lastConnection': new Date().valueOf(),
       'banks.$.details': {

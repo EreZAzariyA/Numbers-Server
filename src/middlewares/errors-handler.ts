@@ -10,7 +10,7 @@ function errorsHandler(err: any, request: Request, response: Response, next: Nex
   }
   if (err instanceof Error) {
     response.status((err as any).status || 500).send('Some error, please contact us');
-    console.error({route: request.path, err: err.message});
+    console.error({ route: { [request.method]: request.path }, err: err.message });
     return;
   }
   if (err instanceof ClientError) {

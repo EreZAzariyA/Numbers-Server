@@ -25,7 +25,6 @@ class AuthenticationLogic {
 
   signin = async (credentials: CredentialsModel): Promise<string> => {
     const user = await UserModel.findOne({ 'emails.email': credentials.email }).exec();
-
     if (!user) {
       throw new ClientError(500, ErrorMessages.INCORRECT_PASSWORD);
     }

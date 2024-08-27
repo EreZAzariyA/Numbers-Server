@@ -51,17 +51,12 @@ export interface IBankModal extends Document {
     balance: number;
   };
   lastConnection: number;
-  extraInfo: AccountInfoType;
+  extraInfo: Partial<AccountInfoType>;
   pastOrFutureDebits: PastOrFutureDebitType[];
   creditCards: CardBlockType[];
   savings: AccountSavesType;
   createdAt: Date;
   updatedAt: Date;
-};
-
-export interface IBanksModal extends Document {
-  userId: Schema.Types.ObjectId;
-  banks: IBankModal[]
 };
 
 const BankScheme = new Schema<IBankModal>({
@@ -74,15 +69,23 @@ const BankScheme = new Schema<IBankModal>({
     accountNumber: Number,
     balance: Number
   },
-  lastConnection: Number,
+  lastConnection: {
+    type: Number,
+    default: new Date().valueOf()
+  },
   extraInfo: AccountInfoScheme,
   pastOrFutureDebits: [PastOrFutureDebitsScheme],
   creditCards: [CreditCardsScheme],
   savings: AccountSavesScheme
 });
 
+export interface IBanksModal extends Document {
+  user_id: Schema.Types.ObjectId;
+  banks: IBankModal[];
+};
+
 const BanksSchema = new Schema<IBanksModal>({
-  userId: {
+  user_id: {
     type: Schema.Types.ObjectId,
     required: [true, "User id is missing"]
   },
@@ -92,4 +95,5 @@ const BanksSchema = new Schema<IBanksModal>({
   autoIndex: true,
 });
 
-export const UserBanks = model('UserBanks', BanksSchema, 'userBanks');
+export const BankModel = model('Banks', BankScheme);
+export const UserBanks = model('UserBanks', BanksSchema, 'banks');

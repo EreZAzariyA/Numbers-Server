@@ -1,12 +1,12 @@
 import express, { NextFunction, Request, Response } from "express";
-import bankLogic from "../bll/bank-logic";
+import bankLogic from "../bll/banks";
 
 const router = express.Router();
 
 router.get('/fetch-all-banks-accounts/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = req.params.user_id;
-    const banks = await bankLogic.fetchBanksAccounts(userId);
+    const user_id = req.params.user_id;
+    const banks = await bankLogic.fetchBanksAccounts(user_id);
     return res.status(200).json(banks);
   } catch (err: any) {
     next(err);
@@ -15,9 +15,9 @@ router.get('/fetch-all-banks-accounts/:user_id', async (req: Request, res: Respo
 
 router.get('/fetch-bank-account/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = req.params.user_id;
+    const user_id = req.params.user_id;
     const bankName = req.body.bankName;
-    const bank = await bankLogic.fetchOneBankAccount(userId, bankName);
+    const bank = await bankLogic.fetchOneBankAccount(user_id, bankName);
     return res.status(200).json(bank);
   } catch (err: any) {
     next(err);

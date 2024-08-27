@@ -4,7 +4,7 @@ import connectToMongoDB from "./dal/dal";
 import errorsHandler from "./middlewares/errors-handler";
 import authenticationRouter from "./routes/authentication";
 import usersRouter from "./routes/users";
-import invoicesRouter from "./routes/invoices";
+import transactionsRouter from "./routes/transactions";
 import categoriesRouter from "./routes/categories";
 import bankRouter from "./routes/bank";
 import verifyToken from "./middlewares/verify-token";
@@ -16,7 +16,7 @@ app.use(express.json());
 
 app.use('/api/auth', authenticationRouter);
 app.use('/api/users', verifyToken, usersRouter);
-app.use('/api/invoices', verifyToken, invoicesRouter);
+app.use('/api/transactions', verifyToken, transactionsRouter);
 app.use('/api/categories', verifyToken, categoriesRouter);
 app.use('/api/bank-account', verifyToken, bankRouter);
 

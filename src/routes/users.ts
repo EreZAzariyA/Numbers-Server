@@ -13,23 +13,21 @@ router.get('/:user_id', async (req: Request, res: Response, next: NextFunction) 
   }
 });
 
-router.put('/:user_id/theme', async (req: Request, res: Response, next: NextFunction) => {
+router.put('/config/theme', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const user_id = req.params.user_id;
-    const themeColor = req.body.theme;
-    await usersLogic.changeTheme(user_id, themeColor);
-    res.sendStatus(200);
+    const { theme, user_id } = req.body;
+    const selectedTheme = await usersLogic.changeTheme(user_id, theme);
+    res.status(200).json(selectedTheme);
   } catch (err: any) {
     next(err);
   }
 });
 
-router.put('/:user_id/lang', async (req: Request, res: Response, next: NextFunction) => {
+router.put('/config/language', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const user_id = req.params.user_id;
-    const lang = req.body.lang;
-    await usersLogic.changeLang(user_id, lang);
-    res.sendStatus(200);
+    const {user_id, language } = req.body;
+    const selectedLang = await usersLogic.changeLang(user_id, language);
+    res.status(200).json(selectedLang);
   } catch (err: any) {
     next(err);
   }

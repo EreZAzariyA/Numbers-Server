@@ -1,25 +1,30 @@
+import { Languages, ThemeColors } from "../models/theme-model";
 import { IUserModel, UserModel } from "../models/user-model";
 
 class UsersLogic {
-
   getUserById = async (user_id: string):Promise<IUserModel> => {
     return UserModel.findById(user_id).select('-services').exec();
   };
 
   changeTheme = async (user_id: string, theme: string) => {
-    await UserModel.findByIdAndUpdate(user_id, {
+    const res = await UserModel.findByIdAndUpdate(user_id, {
       $set: {
         'config.theme-color': theme
       }
-    }).exec();
+    }, { new: true, upsert: true }).select('config.theme-color').exec();
+    const selectedTheme = res.config?.['theme-color'] || ThemeColors.LIGHT;
+    return selectedTheme;
   };
 
-  changeLang = async (user_id: string, lang: string) => {
-    await UserModel.findByIdAndUpdate(user_id, {
+  changeLang = async (user_id: string, lang: string): Promise<string> => {
+    const res = await UserModel.findByIdAndUpdate(user_id, {
       $set: {
         'config.lang': lang
       }
-    }).exec();
+    }, { new: true, upsert: true }).select('config.lang').exec();
+
+    const selectedLang = res.config?.lang || Languages.EN;
+    return selectedLang;
   };
 };
 

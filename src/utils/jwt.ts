@@ -2,7 +2,7 @@ import { Request } from "express";
 import jwt, { VerifyErrors } from "jsonwebtoken";
 import config from "./config";
 import { IUserModel } from "../models/user-model";
-import { UserBankCredentialModel } from "../bll/bank-logic";
+import { UserBankCredentialModel } from "../bll/banks";
 
 const secretKey = config.secretKey;
 

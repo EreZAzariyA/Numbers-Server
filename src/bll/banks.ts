@@ -1,18 +1,19 @@
 import { UserModel } from "../models/user-model";
-import { CategoryModel, ICategoryModel } from "../models/category-model";
-import categoriesLogic from "./categories-logic";
-import { IInvoiceModel, InvoiceModel } from "../models/invoice-model";
 import ClientError from "../models/client-error";
 import { SupportedCompanies, getBankData, insertBankAccount } from "../utils/bank-utils";
 import { ErrorMessages, isArrayAndNotEmpty } from "../utils/helpers";
-import { PastOrFutureDebitType, Transaction, TransactionsAccount, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { UserBanks, IBanksModal, IBankModal } from "../models/bank-model";
 import jwt from "../utils/jwt";
+import categoriesLogic from "./categories";
+import { ITransactionModel, Transactions } from "../models/Transactions";
+import transactionsLogic from "./transactions";
+import mongoose from "mongoose";
 
 interface BankAccountDetails {
   bank: IBanksModal;
   account: TransactionsAccount;
-  importedTransactions?: IInvoiceModel[]
+  importedTransactions?: ITransactionModel[];
 };
 
 export interface UserBankCredentialModel {
@@ -25,15 +26,19 @@ export interface UserBankCredentialModel {
 };
 
 class BankLogic {
-  fetchBanksAccounts = async (userId: string): Promise<IBankModal[]> => {
-    const account = await UserBanks.findOne({ userId: userId }).exec();
-    return account.banks;
+  fetchBanksAccounts = async (user_id: string): Promise<IBanksModal> => {
+    const account = await UserBanks.findOne({ user_id }).exec();
+    return account;
   };
 
-  fetchOneBankAccount = async (userId: string, bankName: string): Promise<IBankModal> => {
-    const banks = await this.fetchBanksAccounts(userId);
-    const bankAccount = banks.find((bank) => bank.bankName === bankName);
-    return bankAccount;
+  fetchOneBankAccount = async (user_id: string, bankName: string): Promise<IBankModal> => {
+    const BanksAccount = await this.fetchBanksAccounts(user_id);
+    if (!!BanksAccount) {
+      const bankAccount = BanksAccount.banks.find((bank) => bank.bankName === bankName);
+      return bankAccount;
+    }
+
+    return null;
   };
 
   fetchBankData = async (details: UserBankCredentialModel, user_id: string): Promise<BankAccountDetails> => {
@@ -72,12 +77,7 @@ class BankLogic {
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
     }
 
-    let credentials: string;
-    if (newDetailsCredentials) {
-      credentials = newDetailsCredentials
-    } else {
-      credentials = bankAccount?.credentials;
-    }
+    const credentials = !!newDetailsCredentials ? newDetailsCredentials : bankAccount?.credentials;
     if (!credentials) {
       throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
     }
@@ -87,7 +87,7 @@ class BankLogic {
       throw new ClientError(500, 'Some error while trying to load decoded credentials. Please contact us');
     }
 
-    const details = {
+    const details: UserBankCredentialModel = {
       companyId: decodedCredentials.companyId,
       id: decodedCredentials.id,
       password: decodedCredentials.password,
@@ -125,8 +125,8 @@ class BankLogic {
       const bank = await insertBankAccount(user_id, details, account);
 
       return {
-        account,
         bank,
+        account,
         importedTransactions: insertedInvoices,
       };
     } catch (err: any) {
@@ -160,59 +160,56 @@ class BankLogic {
   };
 
   importTransactions = async (transactions: Transaction[], user_id: string, companyId: string) => {
-    let defCategory: ICategoryModel = await CategoryModel.findOne({ user_id, name: 'Others' }).exec();
+    let defCategory = await categoriesLogic.fetchUserCategory(user_id, 'Others');
     if (!defCategory) {
-      const category = new CategoryModel({ name: 'Others', user_id });
-      defCategory = await categoriesLogic.addNewCategory(category, user_id);
+      try {
+        defCategory = await categoriesLogic.addNewCategory('Others', user_id);
+      } catch (err) {
+        throw new Error('[bankLogic/importTransactions]: Some error while trying to add default category')
+      }
     }
 
-    const transactionsToInsert = [];
-    for (const transaction of transactions) {
-      const { identifier, status, date, originalAmount, chargedAmount } = transaction;
+    const transactionsToInsert: ITransactionModel[] = []
+    for (const originalTransaction of transactions) {
+      const { identifier, status, date, originalAmount, chargedAmount, description, categoryDescription } = originalTransaction;
 
-      const currentInvoice = await InvoiceModel.findOne({
-        user_id,
-        identifier,
-      }).exec();
-
-      if (currentInvoice && currentInvoice.status !== status) {
+      const existedTransaction = await transactionsLogic.fetchUserBankTransaction(user_id, identifier);
+      if (!!existedTransaction && existedTransaction.status !== status) {
         try {
-          currentInvoice.status = status;
-          await currentInvoice.save();
+          existedTransaction.status = status
+          await existedTransaction.save({ validateBeforeSave: true });
         } catch (err: any) {
-          throw new ClientError(500, `Some error while trying to update invoice ${currentInvoice.identifier}`);
+          console.log(`Some error while trying to update transaction ${existedTransaction.identifier}`);
+          throw new ClientError(500, `Some error while trying to update transaction ${existedTransaction.identifier}`);
         }
       }
-  
-      if (!currentInvoice) {
-        const invoice = new InvoiceModel({
-          user_id,
-          companyId,
-          date,
-          identifier,
-          description: transaction.description || 'no description provide',
-          amount: originalAmount || chargedAmount,
-          status: status || TransactionStatuses.Completed,
-        });
-
-        const isCategoryExist = await CategoryModel.exists({ name: transaction.categoryDescription});
-
-        if (!transaction.categoryDescription) {
-          invoice.category_id = defCategory._id;
-        } else if (isCategoryExist) {
-          invoice.category_id = isCategoryExist._id
-        } else {
-          const newCategory = new CategoryModel({ name: transaction?.categoryDescription || '' });
-          const category = await categoriesLogic.addNewCategory(newCategory, user_id);
-          invoice.category_id = category._id;
+      else {
+        let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, categoryDescription);
+        if (!originalTransactionCategory) {
+          originalTransactionCategory = await categoriesLogic.addNewCategory(categoryDescription, user_id);
         }
-  
-        transactionsToInsert.push(invoice);
+
+        const transaction = new Transactions({
+          user_id,
+          date,
+          identifier: identifier || new mongoose.Types.ObjectId().toString(),
+          description,
+          companyId,
+          status,
+          amount: originalAmount || chargedAmount,
+          category_id: !!originalTransactionCategory ? originalTransactionCategory._id : defCategory._id
+        });
+        transactionsToInsert.push(transaction);
       }
     }
 
-    const inserted = await InvoiceModel.insertMany(transactionsToInsert);
-    return inserted;
+    try {
+      const inserted = await Transactions.insertMany(transactionsToInsert);
+      return inserted || [];
+    } catch (err: any) {
+      console.log({ ['bankLogic/importTransactions']: err });
+      throw new ClientError(500, ErrorMessages.SOME_ERROR);
+    }
   };
 
   importPastOrFutureDebits = async (user_id: string, bankName: string, pastOrFutureDebits: PastOrFutureDebitType[]): Promise<PastOrFutureDebitType[]> => {

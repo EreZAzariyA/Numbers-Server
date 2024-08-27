@@ -1,22 +1,21 @@
-import { CompanyTypes } from "israeli-bank-scrapers-by-e.a";
+import mongoose, { Document, model, Schema } from "mongoose";
 import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
-import { Document, Schema, model } from "mongoose";
 
 export interface ITransactionModel extends Document {
   user_id: Schema.Types.ObjectId;
   date: string;
-  identifier?: number;
-  category_id: Schema.Types.ObjectId | any;
+  identifier?: number | string;
+  category_id: Schema.Types.ObjectId;
   description: string;
   amount: number;
   status: string;
-  companyId: CompanyTypes
+  companyId: string;
 };
 
-const TransactionSchema = new Schema<ITransactionModel>({
+const TransactionsSchema = new Schema<ITransactionModel>({
   user_id: {
     type: Schema.Types.ObjectId,
-    index: true
+    required: [true, 'User id is missing'],
   },
   date: {
     type: String,
@@ -24,7 +23,8 @@ const TransactionSchema = new Schema<ITransactionModel>({
     required: [true, "Date is missing"],
   },
   identifier: {
-    type: Number
+    type: Schema.Types.Mixed,
+    unique: true
   },
   category_id: {
     type: Schema.Types.ObjectId,
@@ -42,13 +42,11 @@ const TransactionSchema = new Schema<ITransactionModel>({
     type: String,
     default: TransactionStatuses.Completed
   },
-  companyId: {
-    type: String
-  }
+  companyId: String
 }, {
   versionKey: false,
   autoIndex: true,
-  timestamps: true,
+  timestamps: true
 });
 
-export const InvoiceModel = model<ITransactionModel>('transactionModal', TransactionSchema, 'transactions');
+export const Transactions = model<ITransactionModel>('Transactions', TransactionsSchema, 'transactions');
