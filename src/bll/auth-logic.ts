@@ -5,10 +5,9 @@ import { IUserModel, UserModel } from "../models/user-model";
 import { comparePassword, encryptPassword } from "../utils/bcrypt-utils";
 import jwt from "../utils/jwt";
 import google from "../utils/google";
-import { ErrorMessages, MAX_LOGIN_ATTEMPTS } from "../utils/helpers";
+import { ErrorMessages, MAX_LOGIN_ATTEMPTS, removeServicesFromUser } from "../utils/helpers";
 
 class AuthenticationLogic {
-
   signup = async (user: IUserModel): Promise<string> => {
     const newEncryptedPassword: string = await encryptPassword(user.services.password);
     user.services.password = newEncryptedPassword;
@@ -19,7 +18,8 @@ class AuthenticationLogic {
     }
 
     const savedUser = await user.save();
-    const token = jwt.getNewToken(savedUser.toObject());
+    const userWithoutServices = removeServicesFromUser(savedUser);
+    const token = jwt.getNewToken(userWithoutServices);
     return token;
   };
 
@@ -49,8 +49,8 @@ class AuthenticationLogic {
     };
     await user.save({ validateBeforeSave: true });
 
-    const { services, ...restOfUser } = user.toObject();
-    const token = jwt.getNewToken(restOfUser);
+    const userWithoutServices = removeServicesFromUser(user);
+    const token = jwt.getNewToken(userWithoutServices);
     return token;
   };
 
@@ -69,7 +69,8 @@ class AuthenticationLogic {
       throw new ClientError(500, ErrorMessages.SOME_ERROR);
     }
 
-    const token = jwt.getNewToken(user.toObject());
+    const userWithoutServices = removeServicesFromUser(user);
+    const token = jwt.getNewToken(userWithoutServices);
     return token;
   };
 };

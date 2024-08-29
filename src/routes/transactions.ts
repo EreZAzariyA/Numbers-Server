@@ -24,11 +24,10 @@ router.post("/:user_id", async (req: Request, res: Response, next: NextFunction)
   }
 });
 
-router.put("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
+router.put("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const user_id = req.params.user_id;
     const transaction = req.body;
-    const updatedTransaction = await transactionsLogic.updateTransaction(user_id, transaction);
+    const updatedTransaction = await transactionsLogic.updateTransaction(transaction);
     res.status(201).json(updatedTransaction);
   } catch (err: any) {
     next(err);

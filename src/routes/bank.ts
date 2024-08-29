@@ -16,8 +16,8 @@ router.get('/fetch-all-banks-accounts/:user_id', async (req: Request, res: Respo
 router.get('/fetch-bank-account/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const bankName = req.body.bankName;
-    const bank = await bankLogic.fetchOneBankAccount(user_id, bankName);
+    const bank_id = req.body.bank_id;
+    const bank = await bankLogic.fetchOneBankAccount(user_id, bank_id);
     return res.status(200).json(bank);
   } catch (err: any) {
     next(err);
@@ -49,8 +49,8 @@ router.post('/import-transactions/:user_id', async (req: Request, res: Response,
 router.put('/refresh-bank-data/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const bankName = req.body.bankName;
-    const response = await bankLogic.refreshBankData(bankName, user_id);
+    const bank_id = req.body.bank_id;
+    const response = await bankLogic.refreshBankData(bank_id, user_id);
     res.status(200).json(response);
   } catch (err: any) {
     next(err);

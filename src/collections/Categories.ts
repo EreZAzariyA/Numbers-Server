@@ -1,5 +1,5 @@
 import { Document, model, Schema } from "mongoose";
-import { CategorySchema, ICategoryModel } from "./category-model";
+import { CategorySchema, ICategoryModel } from "../models/category-model";
 
 export interface ICategories extends Document {
   user_id: Schema.Types.ObjectId;

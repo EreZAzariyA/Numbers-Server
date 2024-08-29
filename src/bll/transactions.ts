@@ -1,6 +1,6 @@
 import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import ClientError from "../models/client-error";
-import { ITransactionModel, Transactions } from "../models/Transactions";
+import { ITransactionModel, Transactions } from "../collections/Transactions";
 
 class TransactionsLogic {
   fetchUserTransactions = async (user_id: string, query = {}): Promise<ITransactionModel[]> => {
@@ -30,7 +30,7 @@ class TransactionsLogic {
     return newTransaction.save();
   };
 
-  updateTransaction = async (user_id: string, transaction: ITransactionModel): Promise<ITransactionModel> => {
+  updateTransaction = async (transaction: ITransactionModel): Promise<ITransactionModel> => {
     const updatedTransaction = await Transactions.findByIdAndUpdate(transaction._id, {
       $set: {
         date: transaction.date,

@@ -9,9 +9,11 @@ import categoriesRouter from "./routes/categories";
 import bankRouter from "./routes/bank";
 import verifyToken from "./middlewares/verify-token";
 import config from "./utils/config";
+import cookieParser from "cookie-parser";
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: '*', credentials: true }));
+app.use(cookieParser());
 app.use(express.json());
 
 app.use('/api/auth', authenticationRouter);

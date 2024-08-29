@@ -1,11 +1,10 @@
 import mongoose from "mongoose";
-import { Categories, ICategories } from "../models/categories";
 import { CategoryModel, ICategoryModel } from "../models/category-model";
 import ClientError from "../models/client-error";
 import { ErrorMessages } from "../utils/helpers";
+import { Categories, ICategories } from "../collections/Categories";
 
 class CategoriesLogic {
-
   async createAccountCategories (user_id: string): Promise<ICategories> {
     console.info(`createAccountCategories: Creating categories object for user: ${user_id}`);
 

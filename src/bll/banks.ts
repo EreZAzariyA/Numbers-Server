@@ -3,15 +3,22 @@ import ClientError from "../models/client-error";
 import { SupportedCompanies, getBankData, insertBankAccount } from "../utils/bank-utils";
 import { ErrorMessages, isArrayAndNotEmpty } from "../utils/helpers";
 import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
-import { UserBanks, IBanksModal, IBankModal } from "../models/bank-model";
 import jwt from "../utils/jwt";
 import categoriesLogic from "./categories";
-import { ITransactionModel, Transactions } from "../models/Transactions";
+import { ITransactionModel, Transactions } from "../collections/Transactions";
 import transactionsLogic from "./transactions";
 import mongoose from "mongoose";
+import { IUserBanksModal, Banks } from "../collections/Banks";
+import { IBankModal } from "../models/bank-model";
+import moment from "moment";
 
 interface BankAccountDetails {
-  bank: IBanksModal;
+  bank: IUserBanksModal;
+  account: TransactionsAccount;
+  importedTransactions?: ITransactionModel[];
+};
+interface RefreshedBankAccountDetails {
+  bank: IBankModal;
   account: TransactionsAccount;
   importedTransactions?: ITransactionModel[];
 };
@@ -26,16 +33,16 @@ export interface UserBankCredentialModel {
 };
 
 class BankLogic {
-  fetchBanksAccounts = async (user_id: string): Promise<IBanksModal> => {
-    const account = await UserBanks.findOne({ user_id }).exec();
+  fetchBanksAccounts = async (user_id: string, query = {}): Promise<IUserBanksModal> => {
+    const account = await Banks.findOne({ user_id, ...query }).exec();
     return account;
   };
 
-  fetchOneBankAccount = async (user_id: string, bankName: string): Promise<IBankModal> => {
-    const BanksAccount = await this.fetchBanksAccounts(user_id);
-    if (!!BanksAccount) {
-      const bankAccount = BanksAccount.banks.find((bank) => bank.bankName === bankName);
-      return bankAccount;
+  fetchOneBankAccount = async (user_id: string, bank_id: string): Promise<IBankModal> => {
+    const banksAccount = await this.fetchBanksAccounts(user_id);
+    if (!!banksAccount) {
+      const bank = banksAccount.banks.find((bank) => bank._id?.toString() === bank_id);
+      return bank;
     }
 
     return null;
@@ -71,8 +78,8 @@ class BankLogic {
     }
   };
 
-  refreshBankData = async (bankName: string, user_id: string, newDetailsCredentials?: string): Promise<BankAccountDetails> => {
-    const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bankName);
+  refreshBankData = async (bank_id: string, user_id: string, newDetailsCredentials?: string): Promise<RefreshedBankAccountDetails> => {
+    const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bank_id);
     if (!bankAccount) {
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
     }
@@ -115,14 +122,16 @@ class BankLogic {
     }
     if (account.pastOrFutureDebits && isArrayAndNotEmpty(account.pastOrFutureDebits)) {
       try {
-        pastOrFutureDebits = await this.importPastOrFutureDebits(user_id, bankName, account.pastOrFutureDebits);
+        pastOrFutureDebits = await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits);
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
     }
 
     try {
-      const bank = await insertBankAccount(user_id, details, account);
+
+      await insertBankAccount(user_id, details, account);
+      const bank = await bankLogic.fetchOneBankAccount(user_id, bank_id);
 
       return {
         bank,
@@ -134,8 +143,8 @@ class BankLogic {
     }
   };
 
-  updateBankAccountDetails = async (bankName: string, user_id: string, newDetails: UserBankCredentialModel) => {
-    const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bankName);
+  updateBankAccountDetails = async (bank_id: string, user_id: string, newDetails: UserBankCredentialModel) => {
+    const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bank_id);
     if (!bankAccount) {
       throw new ClientError(500, ErrorMessages.USER_BANK_ACCOUNT_NOT_FOUND);
     }
@@ -155,7 +164,7 @@ class BankLogic {
 
     const newDetailsCredentials = jwt.createNewToken(newDetails);
 
-    const res = await this.refreshBankData(bankName, user_id, newDetailsCredentials);
+    const res = await this.refreshBankData(bank_id, user_id, newDetailsCredentials);
     return res;
   };
 
@@ -184,6 +193,7 @@ class BankLogic {
         }
       }
       else {
+        if (!!existedTransaction) return;
         let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, categoryDescription);
         if (!originalTransactionCategory) {
           originalTransactionCategory = await categoriesLogic.addNewCategory(categoryDescription, user_id);
@@ -212,8 +222,8 @@ class BankLogic {
     }
   };
 
-  importPastOrFutureDebits = async (user_id: string, bankName: string, pastOrFutureDebits: PastOrFutureDebitType[]): Promise<PastOrFutureDebitType[]> => {
-    const bankAccount = await this.fetchOneBankAccount(user_id, bankName);
+  importPastOrFutureDebits = async (user_id: string, bank_id: string, pastOrFutureDebits: PastOrFutureDebitType[]): Promise<PastOrFutureDebitType[]> => {
+    const bankAccount = await this.fetchOneBankAccount(user_id, bank_id);
 
     const bankPastOrFutureDebits = bankAccount?.pastOrFutureDebits || [];
     pastOrFutureDebits.forEach((debit) => {

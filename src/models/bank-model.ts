@@ -59,7 +59,7 @@ export interface IBankModal extends Document {
   updatedAt: Date;
 };
 
-const BankScheme = new Schema<IBankModal>({
+export const BankScheme = new Schema<IBankModal>({
   bankName: {
     type: String,
     required: [true, "Bank name is missing"],
@@ -79,21 +79,4 @@ const BankScheme = new Schema<IBankModal>({
   savings: AccountSavesScheme
 });
 
-export interface IBanksModal extends Document {
-  user_id: Schema.Types.ObjectId;
-  banks: IBankModal[];
-};
-
-const BanksSchema = new Schema<IBanksModal>({
-  user_id: {
-    type: Schema.Types.ObjectId,
-    required: [true, "User id is missing"]
-  },
-  banks: [BankScheme]
-}, {
-  versionKey: false,
-  autoIndex: true,
-});
-
-export const BankModel = model('Banks', BankScheme);
-export const UserBanks = model('UserBanks', BanksSchema, 'banks');
+export const BankModel = model<IBankModal>('Bank', BankScheme);

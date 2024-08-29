@@ -1,3 +1,5 @@
+import { IUserModel } from "../models/user-model";
+
 export const MAX_LOGIN_ATTEMPTS = 5;
 
 export enum ErrorMessages {
@@ -13,6 +15,11 @@ export enum ErrorMessages {
   CREDENTIALS_SAVED_NOT_LOADED = "Some error while trying to load saved credentials. Please contact us.",
   DECODED_CREDENTIALS_NOT_LOADED = "Some error while trying to load decoded credentials. Please contact us.",
 };
+
+export const removeServicesFromUser = (user: IUserModel): Partial<IUserModel> => {
+  const { services, ...rest } = user.toObject();
+  return rest;
+}
 
 export const isArray = (arr: any[]): boolean => {
   return Array.isArray(arr);

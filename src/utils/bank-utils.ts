@@ -5,7 +5,8 @@ import ClientError from "../models/client-error";
 import { ErrorMessages } from "./helpers";
 import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "./jwt";
-import { UserBanks, IBanksModal, IBankModal, BankModel } from "../models/bank-model";
+import { Banks, IUserBanksModal } from "../collections/Banks";
+import { BankModel } from "../models/bank-model";
 
 export const SupportedCompanies = {
   [CompanyTypes.discount]: CompanyTypes.discount,
@@ -58,8 +59,8 @@ export const getBankData = async (details: UserBankCredentialModel): Promise<Scr
   return scrapeResult;
 };
 
-export const insertBankAccount = async (user_id: string, details: UserBankCredentialModel, account: TransactionsAccount): Promise<IBanksModal> => {
-  const banksAccount = await bankLogic.fetchOneBankAccount(user_id, details.companyId);
+export const insertBankAccount = async (user_id: string, details: UserBankCredentialModel, account: TransactionsAccount): Promise<IUserBanksModal> => {
+  const banksAccount = await bankLogic.fetchBanksAccounts(user_id);
   if (!!banksAccount) {
     const query = createUpdateQuery(user_id, account, details);
     const options = {
@@ -72,7 +73,7 @@ export const insertBankAccount = async (user_id: string, details: UserBankCreden
     };
 
     try {
-      const bankAccounts = await UserBanks.findOneAndUpdate(options, query, projection).exec();
+      const bankAccounts = await Banks.findOneAndUpdate(options, query, projection).exec();
       return bankAccounts;
     } catch (error: any) {
       console.log(error);
@@ -82,18 +83,18 @@ export const insertBankAccount = async (user_id: string, details: UserBankCreden
 
   const newBank = await createBank(details.companyId, details, account);
 
-  const newBankAccount = new UserBanks({
+  const newBanksAccount = new Banks({
     user_id,
     banks: [newBank]
   });
 
-  const errors = newBankAccount.validateSync();
+  const errors = newBanksAccount.validateSync();
   if (errors) {
     console.log({errors});
     throw new ClientError(500, errors.message);
   }
 
-  return newBankAccount.save();
+  return newBanksAccount.save();
 };
 
 export const createBank = async (bankName: string, credentialsDetails: UserBankCredentialModel, account: TransactionsAccount) => {
