@@ -3,7 +3,7 @@ import transactionsLogic from "../bll/transactions";
 
 const router = express.Router();
 
-router.get("/:user_id", async (req: Request, res: Response, next: NextFunction) => {  
+router.get("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
     const transactions = await transactionsLogic.fetchUserTransactions(user_id);

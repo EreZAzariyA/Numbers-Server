@@ -11,12 +11,13 @@ export enum ErrorMessages {
   INCORRECT_PASSWORD = "Email or password are incorrect",
   COMPANY_NOT_SUPPORTED = "Company not supported",
   USER_NOT_FOUND = "User not found",
+  USER_ID_MISSING = "User id is missing",
   USER_BANK_ACCOUNT_NOT_FOUND = "Some error while trying to find user with this account. Please contact us.",
   CREDENTIALS_SAVED_NOT_LOADED = "Some error while trying to load saved credentials. Please contact us.",
   DECODED_CREDENTIALS_NOT_LOADED = "Some error while trying to load decoded credentials. Please contact us.",
 };
 
-export const removeServicesFromUser = (user: IUserModel): Partial<IUserModel> => {
+export const removeServicesFromUser = (user: IUserModel): IUserModel => {
   const { services, ...rest } = user.toObject();
   return rest;
 }

@@ -23,12 +23,7 @@ const TransactionsSchema = new Schema<ITransactionModel>({
     trim: true,
     required: [true, "Date is missing"],
   },
-  identifier: {
-    type: Schema.Types.Mixed,
-    unique: true,
-    sparse: true,
-    default: uuidv4()
-  },
+  identifier: Schema.Types.Mixed,
   category_id: {
     type: Schema.Types.ObjectId,
     required: [true, "Category id is missing"],

@@ -10,12 +10,10 @@ import transactionsLogic from "./transactions";
 import mongoose from "mongoose";
 import { IUserBanksModal, Banks } from "../collections/Banks";
 import { IBankModal } from "../models/bank-model";
-import moment from "moment";
 
 interface BankAccountDetails {
   bank: IUserBanksModal;
   account: TransactionsAccount;
-  importedTransactions?: ITransactionModel[];
 };
 interface RefreshedBankAccountDetails {
   bank: IBankModal;
@@ -44,7 +42,6 @@ class BankLogic {
       const bank = banksAccount.banks.find((bank) => bank._id?.toString() === bank_id);
       return bank;
     }
-
     return null;
   };
 
@@ -174,51 +171,57 @@ class BankLogic {
       try {
         defCategory = await categoriesLogic.addNewCategory('Others', user_id);
       } catch (err) {
-        throw new Error('[bankLogic/importTransactions]: Some error while trying to add default category')
+        throw new Error('[bankLogic/importTransactions]: Some error while trying to add default category');
       }
     }
 
-    const transactionsToInsert: ITransactionModel[] = []
+    const transactionsToInsert: ITransactionModel[] = [];
     for (const originalTransaction of transactions) {
       const { identifier, status, date, originalAmount, chargedAmount, description, categoryDescription } = originalTransaction;
 
-      const existedTransaction = await transactionsLogic.fetchUserBankTransaction(user_id, identifier);
-      if (!!existedTransaction && existedTransaction.status !== status) {
-        try {
-          existedTransaction.status = status
-          await existedTransaction.save({ validateBeforeSave: true });
-        } catch (err: any) {
-          console.log(`Some error while trying to update transaction ${existedTransaction.identifier}`);
-          throw new ClientError(500, `Some error while trying to update transaction ${existedTransaction.identifier}`);
+      const existedTransaction = await transactionsLogic.fetchUserBankTransaction(user_id, originalTransaction);
+      if (!!existedTransaction) {
+        if (existedTransaction.status !== originalTransaction.status) {
+          try {
+            await transactionsLogic.updateTransactionStatus(existedTransaction, status);
+          } catch (err: any) {
+            console.log(`Some error while trying to update transaction ${existedTransaction.identifier}`);
+            throw new ClientError(500, `Some error while trying to update transaction ${existedTransaction.identifier}`);
+          }
         }
+        continue;
       }
-      else {
-        if (!!existedTransaction) return;
-        let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, categoryDescription);
-        if (!originalTransactionCategory) {
-          originalTransactionCategory = await categoriesLogic.addNewCategory(categoryDescription, user_id);
-        }
 
-        const transaction = new Transactions({
-          user_id,
-          date,
-          identifier: identifier || new mongoose.Types.ObjectId().toString(),
-          description,
-          companyId,
-          status,
-          amount: originalAmount || chargedAmount,
-          category_id: !!originalTransactionCategory ? originalTransactionCategory._id : defCategory._id
-        });
-        transactionsToInsert.push(transaction);
+      let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, categoryDescription);
+      if (!originalTransactionCategory?._id) {
+        if (categoryDescription) {
+          originalTransactionCategory = await categoriesLogic.addNewCategory(categoryDescription, user_id);
+        } else {
+          originalTransactionCategory = defCategory;
+        }
       }
+
+      const transaction = new Transactions({
+        user_id,
+        date,
+        identifier: identifier || new mongoose.Types.ObjectId().toString(),
+        description,
+        companyId,
+        status,
+        amount: originalAmount || chargedAmount,
+        category_id: originalTransactionCategory._id
+      });
+      transactionsToInsert.push(transaction);
     }
 
     try {
       const inserted = await Transactions.insertMany(transactionsToInsert);
+      console.log({inserted});
+      
       return inserted || [];
     } catch (err: any) {
-      console.log({ ['bankLogic/importTransactions']: err });
-      throw new ClientError(500, ErrorMessages.SOME_ERROR);
+      console.log({ ['bankLogic/importTransactions']: err?.message });
+      throw new ClientError(500, 'An error occurred while importing transactions');
     }
   };
 

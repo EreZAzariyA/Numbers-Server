@@ -12,7 +12,10 @@ import config from "./utils/config";
 import cookieParser from "cookie-parser";
 
 const app = express();
-app.use(cors({ origin: '*', credentials: true }));
+app.use(cors({
+  origin: ['http://127.0.0.1:3000', 'http://localhost:3000'],
+  credentials: true
+}));
 app.use(cookieParser());
 app.use(express.json());
 

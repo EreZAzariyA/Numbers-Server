@@ -1,4 +1,4 @@
-import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import ClientError from "../models/client-error";
 import { ITransactionModel, Transactions } from "../collections/Transactions";
 
@@ -7,9 +7,14 @@ class TransactionsLogic {
     return Transactions.find({ user_id, ...query }).exec();
   };
 
-  fetchUserBankTransaction = async (user_id: string, identifier: string | number): Promise<ITransactionModel> => {
-    const transaction = Transactions.findOne({ user_id, identifier }).exec();
-    return transaction;
+  fetchUserBankTransaction = async (user_id: string, transaction: Transaction): Promise<ITransactionModel> => {
+    const trans = Transactions.findOne({
+      user_id,
+      status: transaction.status,
+      description: transaction.description,
+      identifier: transaction.identifier
+    }).exec();
+    return trans;
   };
 
   newTransaction = async (user_id: string, transaction: ITransactionModel):Promise<ITransactionModel> => {
@@ -53,29 +58,17 @@ class TransactionsLogic {
     return updatedTransaction;
   };
 
-  updateTransactionStatus = async (user_id: string, identifier: string | number, status: string): Promise<ITransactionModel> => {
-    const updatedTransaction = await Transactions.findOneAndUpdate(
-      { user_id, identifier },
+  updateTransactionStatus = async (transaction: ITransactionModel, status: string): Promise<ITransactionModel> => {
+    return await Transactions.findByIdAndUpdate(
+      transaction._id,
       { $set: { status } },
       { new: true }
     ).exec();
 
-    const errors = updatedTransaction.validateSync();
-    if (errors) {
-      console.log(errors);
-      
-      throw new ClientError(500, errors.message);
-    }
-  
-    return updatedTransaction;
   };
 
   removeTransaction = async (transaction_id: string, user_id: string): Promise<void> => {
-    await Transactions.findOneAndUpdate(
-      { user_id },
-      { $pull: { transactions: { _id: transaction_id } } },
-      { new: true }
-    ).exec();
+    await Transactions.findByIdAndDelete(transaction_id).exec();
   };
 };
 

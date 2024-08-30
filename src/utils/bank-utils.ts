@@ -108,7 +108,8 @@ export const createBank = async (bankName: string, credentialsDetails: UserBankC
     extraInfo: account.info,
     pastOrFutureDebits: account.pastOrFutureDebits,
     creditCards: account.cardsPastOrFutureDebit.cardsBlock,
-    savings: account.saving
+    savings: account.saving,
+    lastConnection: new Date().valueOf()
   });
 
   return bankAccount;

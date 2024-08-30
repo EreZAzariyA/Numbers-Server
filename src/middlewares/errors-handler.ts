@@ -17,7 +17,6 @@ function errorsHandler(err: any, request: Request, response: Response, next: Nex
     response.status(err.status).send(err.message);
     return;
   }
-  
 
   next();
 };

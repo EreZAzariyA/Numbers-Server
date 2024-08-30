@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { CategoryModel, ICategoryModel } from "../models/category-model";
 import ClientError from "../models/client-error";
 import { ErrorMessages } from "../utils/helpers";
@@ -35,8 +34,8 @@ class CategoriesLogic {
 
   async addNewCategory(categoryName: string, user_id: string): Promise<ICategoryModel> {
     if (!user_id) {
-      console.error(`addNewCategory: Fail to add category: ${categoryName}`);
-      throw new ClientError(500, 'User id is missing');
+      console.info(`addNewCategory: Fail to add category: ${categoryName} - ${ErrorMessages.USER_ID_MISSING}`);
+      throw new ClientError(500, ErrorMessages.USER_ID_MISSING);
     }
 
     const allCategories = await Categories.findOne({ user_id }).exec();
@@ -44,7 +43,7 @@ class CategoriesLogic {
       const isExist = allCategories.categories.some((c) => c.name === categoryName);
   
       if (isExist) {
-        console.error(`addNewCategory: Fail to add category: ${categoryName} - ${ErrorMessages.NAME_IN_USE}`);
+        console.info(`addNewCategory: Fail to add category: ${categoryName} - ${ErrorMessages.NAME_IN_USE}`);
         throw new ClientError(500, ErrorMessages.NAME_IN_USE);
       }
     }

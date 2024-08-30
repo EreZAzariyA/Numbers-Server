@@ -24,7 +24,7 @@ router.get('/fetch-bank-account/:user_id', async (req: Request, res: Response, n
   }
 });
 
-router.post('/fetch-bank-data/:user_id', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/connect-bank/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
     const details = req.body;

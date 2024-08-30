@@ -11,7 +11,7 @@ class UsersLogic {
       $set: {
         'config.theme-color': theme
       }
-    }, { new: true, upsert: true }).select('config.theme-color').exec();
+    }, { new: true }).exec();
     const selectedTheme = res.config?.['theme-color'] || ThemeColors.LIGHT;
     return selectedTheme;
   };
@@ -21,7 +21,7 @@ class UsersLogic {
       $set: {
         'config.lang': lang
       }
-    }, { new: true, upsert: true }).select('config.lang').exec();
+    }, { new: true }).select('config.lang').exec();
 
     const selectedLang = res.config?.lang || Languages.EN;
     return selectedLang;

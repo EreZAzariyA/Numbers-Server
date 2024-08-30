@@ -26,7 +26,7 @@ class AuthenticationLogic {
   signin = async (credentials: CredentialsModel): Promise<string> => {
     const user = await UserModel.findOne({ 'emails.email': credentials.email }).exec();
     if (!user) {
-      throw new ClientError(500, ErrorMessages.INCORRECT_PASSWORD);
+      throw new ClientError(400, ErrorMessages.INCORRECT_PASSWORD);
     }
 
     if (user.loginAttempts.attempts >= MAX_LOGIN_ATTEMPTS) {
@@ -40,7 +40,7 @@ class AuthenticationLogic {
         lastAttemptDate: new Date().valueOf()
       };
       await user.save({ validateBeforeSave: true });
-      throw new ClientError(500, ErrorMessages.INCORRECT_PASSWORD);
+      throw new ClientError(400, ErrorMessages.INCORRECT_PASSWORD);
     }
 
     user.loginAttempts = {
@@ -51,6 +51,7 @@ class AuthenticationLogic {
 
     const userWithoutServices = removeServicesFromUser(user);
     const token = jwt.getNewToken(userWithoutServices);
+
     return token;
   };
 

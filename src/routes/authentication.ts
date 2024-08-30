@@ -19,11 +19,7 @@ router.post("/signin", async (req: Request, res: Response, next: NextFunction) =
   try {
     const credentials = new CredentialsModel(req.body);
     const token = await authLogic.signin(credentials);
-    if (!!token) {
-      res.status(201).json(token);
-    } else {
-      res.status(401);
-    }
+    res.status(201).json(token);
   } catch (err: any) {
     next(err);
   }
@@ -31,12 +27,7 @@ router.post("/signin", async (req: Request, res: Response, next: NextFunction) =
 
 router.post("/logout", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.clearCookie('token', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict'
-    });
-    res.sendStatus(200);
+    res.sendStatus(201);
   } catch (err: any) {
     next(err);
   }

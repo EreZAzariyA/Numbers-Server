@@ -6,7 +6,7 @@ import { UserBankCredentialModel } from "../bll/banks";
 
 const secretKey = config.secretKey;
 
-function getNewToken(user: Partial<IUserModel>, customExpiresIn?: string): string {
+function getNewToken(user: IUserModel, customExpiresIn?: string): string {
   const token = jwt.sign(user, secretKey, { expiresIn: customExpiresIn || config.loginExpiresIn });
   return token;
 };
@@ -19,19 +19,14 @@ function createNewToken(data: any, customExpiresIn?: string): string {
 function verifyToken(request: Request): Promise<boolean> {
   return new Promise((resolve, reject) => {
     try {
-      if (!request.headers.authorization) {
-        resolve(false);
-        return;
-      }
-      const token = request.headers.authorization.substring(7);
+      const token = request.headers.authorization?.substring(7);
       if (!token) {
-        resolve(false);
-        return;
+        reject('No token provide');
       }
+
       jwt.verify(token, secretKey, (err: VerifyErrors) => {
         if (err) {
-          resolve(false);
-          return;
+          reject(err.message);
         }
         resolve(true);
       });
@@ -45,7 +40,13 @@ function verifyToken(request: Request): Promise<boolean> {
 function getUserFromToken(request: Request): IUserModel {
   const token = request.headers.authorization.substring(7);
   const payload = jwt.decode(token);
-  const user = (payload as any).user;
+  const user = (payload as IUserModel);
+  return user;
+};
+
+function getUserFromTokenString(token: string): IUserModel {
+  const payload = jwt.decode(token);
+  const user = (payload as IUserModel);
   return user;
 };
 
@@ -59,5 +60,6 @@ export default {
   createNewToken,
   verifyToken,
   getUserFromToken,
-  fetchBankCredentialsFromToken
+  fetchBankCredentialsFromToken,
+  getUserFromTokenString
 };
