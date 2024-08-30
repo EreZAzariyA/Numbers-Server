@@ -13,7 +13,7 @@ import cookieParser from "cookie-parser";
 
 const app = express();
 app.use(cors({
-  origin: ['http://127.0.0.1:3000', 'http://localhost:3000'],
+  origin: ['http://127.0.0.1:3000', 'http://localhost:3000', 'https://ea-numbers.vercel.app'],
   credentials: true
 }));
 app.use(cookieParser());
