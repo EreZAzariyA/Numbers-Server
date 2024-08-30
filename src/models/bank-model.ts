@@ -1,4 +1,4 @@
-import { AccountInfoType, PastOrFutureDebitType, CardBlockType, AccountSavesType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { AccountInfoType, AccountSavesType, CardBlockType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
 const AccountInfoScheme = new Schema<AccountInfoType>({
@@ -26,8 +26,10 @@ const CreditCardsScheme = new Schema<CardBlockType>({
   cardHolderLastName: String,
   cardName: String,
   cardNumber: String,
+  cardFramework: Number,
   cardFrameworkNotUsed: Number,
   cardFrameworkUsed: Number,
+  cardStatusCode: Number,
   cardTypeDescription: String,
   cardFamilyDescription: String,
   cardValidityDate: String,

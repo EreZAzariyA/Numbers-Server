@@ -216,8 +216,6 @@ class BankLogic {
 
     try {
       const inserted = await Transactions.insertMany(transactionsToInsert);
-      console.log({inserted});
-      
       return inserted || [];
     } catch (err: any) {
       console.log({ ['bankLogic/importTransactions']: err?.message });

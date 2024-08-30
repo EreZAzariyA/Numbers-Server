@@ -10,11 +10,9 @@ const verifyToken = async(req: Request, res: Response, next: NextFunction):Promi
       next(error);
       return;
     }
-    
   } catch (error: any) {
     console.log({error});
   }
-
 
   next();
 };
