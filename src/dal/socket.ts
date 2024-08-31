@@ -1,4 +1,4 @@
-import { Server as SocketServer , Socket } from "socket.io";
+import { Server as SocketServer } from "socket.io";
 import { Server as HttpServer } from "http";
 
 const options = {
@@ -13,7 +13,6 @@ class SocketIo {
   initSocketIo = (httpServer: HttpServer) => {
     this.socket = new SocketServer(httpServer, options);
     console.log('Socket IO is running...');
-    
 
     this.socket.sockets.on("connection", (socket) => {
       console.log("One client has been connected...");
@@ -23,7 +22,7 @@ class SocketIo {
       });
     });
 
-    this.socket.of("/admin").on("connection", (socket) => {
+    this.socket.of("/admin").on("connection", () => {
       console.log('admin-connected');
     });
   };

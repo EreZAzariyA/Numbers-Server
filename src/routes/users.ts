@@ -6,7 +6,7 @@ const router = express.Router();
 router.get('/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const user = await usersLogic.getUserById(user_id);
+    const user = await usersLogic.fetchUserProfile(user_id);
     res.status(200).json(user);
   } catch (err: any) {
     next(err);

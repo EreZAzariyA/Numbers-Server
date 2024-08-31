@@ -67,7 +67,7 @@ class TransactionsLogic {
 
   };
 
-  removeTransaction = async (transaction_id: string, user_id: string): Promise<void> => {
+  removeTransaction = async (transaction_id: string): Promise<void> => {
     await Transactions.findByIdAndDelete(transaction_id).exec();
   };
 };

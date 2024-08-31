@@ -38,7 +38,7 @@ class BankLogic {
 
   fetchOneBankAccount = async (user_id: string, bank_id: string): Promise<IBankModal> => {
     const banksAccount = await this.fetchBanksAccounts(user_id);
-    if (!!banksAccount) {
+    if (banksAccount) {
       const bank = banksAccount.banks.find((bank) => bank._id?.toString() === bank_id);
       return bank;
     }
@@ -75,13 +75,17 @@ class BankLogic {
     }
   };
 
-  refreshBankData = async (bank_id: string, user_id: string, newDetailsCredentials?: string): Promise<RefreshedBankAccountDetails> => {
+  refreshBankData = async (
+  bank_id: string,
+  user_id: string,
+  newDetailsCredentials?: string
+  ): Promise<RefreshedBankAccountDetails> => {
     const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bank_id);
     if (!bankAccount) {
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
     }
 
-    const credentials = !!newDetailsCredentials ? newDetailsCredentials : bankAccount?.credentials;
+    const credentials = newDetailsCredentials ? newDetailsCredentials : bankAccount?.credentials;
     if (!credentials) {
       throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
     }
@@ -108,8 +112,6 @@ class BankLogic {
     const account = scrapeResult.accounts[0];
 
     let insertedInvoices = [];
-    let pastOrFutureDebits = [];
-
     if (account.txns && isArrayAndNotEmpty(account.txns)) {
       try {
         insertedInvoices = await this.importTransactions(account.txns, user_id, details.companyId);
@@ -119,7 +121,7 @@ class BankLogic {
     }
     if (account.pastOrFutureDebits && isArrayAndNotEmpty(account.pastOrFutureDebits)) {
       try {
-        pastOrFutureDebits = await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits);
+        await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits);
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
@@ -170,22 +172,30 @@ class BankLogic {
     if (!defCategory) {
       try {
         defCategory = await categoriesLogic.addNewCategory('Others', user_id);
-      } catch (err) {
-        throw new Error('[bankLogic/importTransactions]: Some error while trying to add default category');
+      } catch (err: any) {
+        throw new Error(`[bankLogic/importTransactions]: Some error while trying to add default category - ${err?.message}` );
       }
     }
 
     const transactionsToInsert: ITransactionModel[] = [];
     for (const originalTransaction of transactions) {
-      const { identifier, status, date, originalAmount, chargedAmount, description, categoryDescription } = originalTransaction;
+      const {
+        identifier,
+        status,
+        date,
+        originalAmount,
+        chargedAmount,
+        description,
+        categoryDescription
+      } = originalTransaction;
 
       const existedTransaction = await transactionsLogic.fetchUserBankTransaction(user_id, originalTransaction);
-      if (!!existedTransaction) {
+      if (existedTransaction) {
         if (existedTransaction.status !== originalTransaction.status) {
           try {
             await transactionsLogic.updateTransactionStatus(existedTransaction, status);
           } catch (err: any) {
-            console.log(`Some error while trying to update transaction ${existedTransaction.identifier}`);
+            console.log(`Some error while trying to update transaction ${existedTransaction.identifier} - ${err?.message}`);
             throw new ClientError(500, `Some error while trying to update transaction ${existedTransaction.identifier}`);
           }
         }
@@ -223,7 +233,11 @@ class BankLogic {
     }
   };
 
-  importPastOrFutureDebits = async (user_id: string, bank_id: string, pastOrFutureDebits: PastOrFutureDebitType[]): Promise<PastOrFutureDebitType[]> => {
+  importPastOrFutureDebits = async (
+    user_id: string,
+    bank_id: string,
+    pastOrFutureDebits: PastOrFutureDebitType[]
+  ): Promise<PastOrFutureDebitType[]> => {
     const bankAccount = await this.fetchOneBankAccount(user_id, bank_id);
 
     const bankPastOrFutureDebits = bankAccount?.pastOrFutureDebits || [];

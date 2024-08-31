@@ -41,7 +41,7 @@ class CategoriesLogic {
     const allCategories = await Categories.findOne({ user_id }).exec();
     if (allCategories) {
       const isExist = allCategories.categories.some((c) => c.name === categoryName);
-  
+
       if (isExist) {
         console.info(`addNewCategory: Fail to add category: ${categoryName} - ${ErrorMessages.NAME_IN_USE}`);
         throw new ClientError(500, ErrorMessages.NAME_IN_USE);
@@ -54,7 +54,7 @@ class CategoriesLogic {
       { $push: { categories: category } },
       { new: true, upsert: true }
     ).exec();
-  
+
     if (!updatedCategories) {
       console.error('Failed to add category, document not found or created.');
       throw new ClientError(500, 'Failed to add category');

@@ -6,7 +6,7 @@ import { ErrorMessages } from "./helpers";
 import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "./jwt";
 import { Banks, IUserBanksModal } from "../collections/Banks";
-import { BankModel } from "../models/bank-model";
+import { BankModel, IBankModal } from "../models/bank-model";
 
 export const SupportedCompanies = {
   [CompanyTypes.discount]: CompanyTypes.discount,
@@ -59,9 +59,13 @@ export const getBankData = async (details: UserBankCredentialModel): Promise<Scr
   return scrapeResult;
 };
 
-export const insertBankAccount = async (user_id: string, details: UserBankCredentialModel, account: TransactionsAccount): Promise<IUserBanksModal> => {
+export const insertBankAccount = async (
+  user_id: string,
+  details: UserBankCredentialModel,
+  account: TransactionsAccount
+): Promise<IUserBanksModal> => {
   const banksAccount = await bankLogic.fetchBanksAccounts(user_id);
-  if (!!banksAccount) {
+  if (banksAccount) {
     const query = createUpdateQuery(user_id, account, details);
     const options = {
       user_id: user_id,
@@ -90,14 +94,18 @@ export const insertBankAccount = async (user_id: string, details: UserBankCreden
 
   const errors = newBanksAccount.validateSync();
   if (errors) {
-    console.log({errors});
+    console.log({ errors });
     throw new ClientError(500, errors.message);
   }
 
   return newBanksAccount.save();
 };
 
-export const createBank = async (bankName: string, credentialsDetails: UserBankCredentialModel, account: TransactionsAccount) => {
+export const createBank = async (
+  bankName: string,
+  credentialsDetails: UserBankCredentialModel,
+  account: TransactionsAccount
+): Promise<IBankModal> => {
   const bankAccount = new BankModel({
     bankName,
     credentials: jwt.createNewToken(credentialsDetails),
@@ -111,27 +119,28 @@ export const createBank = async (bankName: string, credentialsDetails: UserBankC
     savings: account.saving,
     lastConnection: new Date().valueOf()
   });
-
   return bankAccount;
 }
 
-export const createUpdateQuery = (user_id: string, account: TransactionsAccount, details: UserBankCredentialModel): object => {
-  return {
-    $set: {
-      'banks.$.user_id': user_id,
-      'banks.$.bankName': SupportedCompanies[details.companyId],
-      'banks.$.lastConnection': new Date().valueOf(),
-      'banks.$.details': {
-        accountNumber: account.accountNumber,
-        balance: account.balance
-      },
-      'banks.$.extraInfo': account.info,
-      'banks.$.pastOrFutureDebits': account.pastOrFutureDebits,
-      'banks.$.creditCards': account.cardsPastOrFutureDebit.cardsBlock,
-      'banks.$.savings': account.saving,
-      ...(details.save && {
-        'banks.$.credentials': jwt.createNewToken(details)
-      })
-    }
-  };
-};
+export const createUpdateQuery = (
+  user_id: string,
+  account: TransactionsAccount,
+  details: UserBankCredentialModel
+): object => ({
+  $set: {
+    'banks.$.user_id': user_id,
+    'banks.$.bankName': SupportedCompanies[details.companyId],
+    'banks.$.lastConnection': new Date().valueOf(),
+    'banks.$.details': {
+      accountNumber: account.accountNumber,
+      balance: account.balance
+    },
+    'banks.$.extraInfo': account.info,
+    'banks.$.pastOrFutureDebits': account.pastOrFutureDebits,
+    'banks.$.creditCards': account.cardsPastOrFutureDebit.cardsBlock,
+    'banks.$.savings': account.saving,
+    ...(details.save && {
+      'banks.$.credentials': jwt.createNewToken(details)
+    })
+  }
+});

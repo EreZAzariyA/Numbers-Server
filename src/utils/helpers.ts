@@ -19,6 +19,7 @@ export enum ErrorMessages {
 };
 
 export const removeServicesFromUser = (user: IUserModel): IUserModel => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { services, ...rest } = user.toObject();
   return rest;
 }

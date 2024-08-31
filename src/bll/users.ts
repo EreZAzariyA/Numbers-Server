@@ -2,7 +2,7 @@ import { Languages, ThemeColors } from "../models/theme-model";
 import { IUserModel, UserModel } from "../models/user-model";
 
 class UsersLogic {
-  getUserById = async (user_id: string):Promise<IUserModel> => {
+  fetchUserProfile = async (user_id: string):Promise<IUserModel> => {
     return UserModel.findById(user_id).select('-services').exec();
   };
 

@@ -36,8 +36,8 @@ router.put("/", async (req: Request, res: Response, next: NextFunction) => {
 
 router.delete("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { transaction_id, user_id } = req.body;
-    await transactionsLogic.removeTransaction(transaction_id, user_id);
+    const { transaction_id } = req.body;
+    await transactionsLogic.removeTransaction(transaction_id);
     res.sendStatus(200);
   } catch (err: any) {
     next(err);

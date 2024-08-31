@@ -1,6 +1,5 @@
 import { Document, model, Schema } from "mongoose";
 import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
-import { v4 as uuidv4 } from 'uuid';
 
 export interface ITransactionModel extends Document {
   user_id: Schema.Types.ObjectId;
