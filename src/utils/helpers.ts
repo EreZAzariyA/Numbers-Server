@@ -15,6 +15,7 @@ export enum ErrorMessages {
   USER_BANK_ACCOUNT_NOT_FOUND = "Some error while trying to find user with this account. Please contact us.",
   CREDENTIALS_SAVED_NOT_LOADED = "Some error while trying to load saved credentials. Please contact us.",
   DECODED_CREDENTIALS_NOT_LOADED = "Some error while trying to load decoded credentials. Please contact us.",
+  TOKEN_EXPIRED = "Invalid or expired token"
 };
 
 export const removeServicesFromUser = (user: IUserModel): IUserModel => {

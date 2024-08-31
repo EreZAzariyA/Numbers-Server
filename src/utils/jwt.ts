@@ -3,6 +3,8 @@ import jwt, { VerifyErrors } from "jsonwebtoken";
 import config from "./config";
 import { IUserModel } from "../models/user-model";
 import { UserBankCredentialModel } from "../bll/banks";
+import ClientError from "../models/client-error";
+import { ErrorMessages } from "./helpers";
 
 const secretKey = config.secretKey;
 
@@ -21,14 +23,17 @@ function verifyToken(request: Request): Promise<boolean> {
     try {
       const token = request.headers.authorization?.substring(7);
       if (!token) {
-        reject('No token provide');
+        const error = new ClientError(401, 'No token provide');
+        return reject(error);
       }
 
-      jwt.verify(token, secretKey, (err: VerifyErrors) => {
+      jwt.verify(token, secretKey, (err: VerifyErrors, decoded) => {
         if (err) {
-          reject(err.message);
+          const error = new ClientError(401, ErrorMessages.TOKEN_EXPIRED);
+          return reject(error);
         }
-        resolve(true);
+
+        resolve(!!token);
       });
     }
     catch (err: any) {
