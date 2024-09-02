@@ -27,7 +27,7 @@ function verifyToken(request: Request): Promise<boolean> {
         return reject(error);
       }
 
-      jwt.verify(token, secretKey, (err: VerifyErrors, decoded) => {
+      jwt.verify(token, secretKey, (err: VerifyErrors) => {
         if (err) {
           const error = new ClientError(401, ErrorMessages.TOKEN_EXPIRED);
           return reject(error);

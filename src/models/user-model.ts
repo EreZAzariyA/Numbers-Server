@@ -27,14 +27,14 @@ const GoogleUserSchema = new Schema<GoogleUserType>({
   picture: String,
   email: {
     type: String,
-    required: true,
-    unique: true
+    unique: true,
+    sparse: true
   },
   email_verified: {
     type: Boolean,
   },
   locale: String
-}, { _id: false });
+}, { _id: false, autoIndex: true });
 
 export interface IUserModel extends Document {
   profile: {
@@ -44,14 +44,14 @@ export interface IUserModel extends Document {
   };
   services: {
     password: string,
-    google?: GoogleUserType
+    google: GoogleUserType
   };
   emails: [EmailType];
-  config?: {
+  config: {
     'theme-color': ThemeType,
     lang: string
   };
-  loginAttempts?: {
+  loginAttempts: {
     lastAttemptDate: number,
     attempts: number
   };
