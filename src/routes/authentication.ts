@@ -35,7 +35,8 @@ router.post("/logout", async (req: Request, res: Response, next: NextFunction) =
 
 router.post("/google", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = await authLogic.google(req.body);
+    const { credential, clientId } = req.body
+    const token = await authLogic.google(credential, clientId);
     res.status(201).json(token);
   } catch (err: any) {
     next(err);

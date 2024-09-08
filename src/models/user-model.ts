@@ -71,9 +71,6 @@ export const UserSchema = new Schema<IUserModel>({
     last_name: {
       type: String,
       trim: true,
-      required: [true, "Last name is missing"],
-      minLength: [3, "Last name is to short"],
-      maxLength: [20, "Last name is to long"],
     },
     image_url: {
       type: String,

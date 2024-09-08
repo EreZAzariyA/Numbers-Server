@@ -5,6 +5,7 @@ import { IUserModel } from "../models/user-model";
 import { UserBankCredentialModel } from "../bll/banks";
 import ClientError from "../models/client-error";
 import { ErrorMessages } from "./helpers";
+import usersLogic from "../bll/users";
 
 const secretKey = config.secretKey;
 
@@ -24,13 +25,22 @@ function verifyToken(request: Request): Promise<boolean> {
       const token = request.headers.authorization?.substring(7);
       if (!token) {
         const error = new ClientError(401, 'No token provide');
-        return reject(error);
+        reject(error);
       }
 
-      jwt.verify(token, secretKey, (err: VerifyErrors) => {
+      jwt.verify(token, secretKey, async (err: VerifyErrors, decoded: IUserModel) => {
         if (err) {
           const error = new ClientError(401, ErrorMessages.TOKEN_EXPIRED);
-          return reject(error);
+          reject(error);
+        }
+
+        const user: IUserModel = decoded;
+        if (user?._id && typeof user._id === 'string') {
+          const userPro = await usersLogic.fetchUserProfile(user._id);
+          if (!userPro) {
+            const err = new ClientError(401, 'User profile not found. Try to reconnect.');
+            reject(err);
+          }
         }
 
         resolve(!!token);

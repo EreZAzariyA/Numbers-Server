@@ -2,6 +2,18 @@ import { CategoryModel, ICategoryModel } from "../models/category-model";
 import ClientError from "../models/client-error";
 import { ErrorMessages } from "../utils/helpers";
 import { Categories, ICategories } from "../collections/Categories";
+import { ObjectId } from "mongoose";
+
+export const getAmountToUpdate = (amount: number) => {
+  let newAmount = 0;
+  if (amount > 0) {
+    newAmount = amount * -1;
+  } else {
+    newAmount = Math.abs(amount);
+  }
+
+  return newAmount;
+}
 
 class CategoriesLogic {
   async createAccountCategories (user_id: string): Promise<ICategories> {
@@ -27,9 +39,15 @@ class CategoriesLogic {
   };
 
   async fetchUserCategory (user_id: string, categoryName: string): Promise<ICategoryModel> {
-    const userCategories = await this.fetchCategoriesByUserId(user_id);
-    const categoryIndex = userCategories.findIndex((c) => c.name === categoryName);
-    return userCategories[categoryIndex];
+    try {
+      const userCategories = await this.fetchCategoriesByUserId(user_id);
+      const categoryIndex = userCategories.findIndex((c) => c.name === categoryName);
+      const category = userCategories[categoryIndex];
+      return category
+    } catch (err: any) {
+      console.log(err);
+      return err;
+    }
   };
 
   async addNewCategory(categoryName: string, user_id: string): Promise<ICategoryModel> {
@@ -63,7 +81,36 @@ class CategoriesLogic {
     return category;
   };
 
-  async updateCategory (category: ICategoryModel, user_id: string): Promise<ICategoryModel>{
+  async updateCategorySpentAmount (
+    user_id: string | ObjectId,
+    category_id: ObjectId,
+    amount: number,
+    newAmount?: number
+  ) {
+    await Categories.findOneAndUpdate(
+      { user_id, 'categories._id': category_id },
+      { $inc: { 'categories.$.spent': amount } },
+      { new: true }
+    ).exec();
+    if (newAmount) {
+      await Categories.findOneAndUpdate(
+        { user_id, 'categories._id': category_id },
+        { $inc: { 'categories.$.spent': newAmount } },
+        { new: true }
+      ).exec();
+    }
+  };
+
+  async updateManyCategoriesSpentAmount (user_id: string, categoriesSpentObj: object): Promise<void> {
+    for (const [categoryName, spentAmount] of Object.entries(categoriesSpentObj)) {
+      await Categories.findOneAndUpdate(
+        { user_id, 'categories.name': categoryName },
+        { $inc: { 'categories.$.spent': spentAmount } }
+      ).exec();
+    }
+  };
+
+  async updateCategory (category: ICategoryModel, user_id: string): Promise<ICategoryModel> {
     const updatedDoc = await Categories.findOneAndUpdate(
       { user_id, 'categories._id': category._id },
       { $set: {

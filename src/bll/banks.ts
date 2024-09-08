@@ -177,6 +177,8 @@ class BankLogic {
       }
     }
 
+    const categoriesSpent: object = {};
+
     const transactionsToInsert: ITransactionModel[] = [];
     for (const originalTransaction of transactions) {
       const {
@@ -221,10 +223,16 @@ class BankLogic {
         amount: originalAmount || chargedAmount,
         category_id: originalTransactionCategory._id
       });
+
+      if (transaction.amount && typeof transaction.amount === 'number') {
+        categoriesSpent[originalTransactionCategory.name] = categoriesSpent[originalTransactionCategory.name] || 0;
+        categoriesSpent[originalTransactionCategory.name] += Math.abs(transaction.amount);
+      }
       transactionsToInsert.push(transaction);
     }
 
     try {
+      await categoriesLogic.updateManyCategoriesSpentAmount(user_id, categoriesSpent);
       const inserted = await Transactions.insertMany(transactionsToInsert);
       return inserted || [];
     } catch (err: any) {

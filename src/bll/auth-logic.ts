@@ -1,4 +1,3 @@
-import { CredentialRequest } from "google-auth-library";
 import ClientError from "../models/client-error";
 import CredentialsModel from "../models/credentials-model";
 import { IUserModel, UserModel } from "../models/user-model";
@@ -6,6 +5,9 @@ import { comparePassword, encryptPassword } from "../utils/bcrypt-utils";
 import jwt from "../utils/jwt";
 import google from "../utils/google";
 import { ErrorMessages, MAX_LOGIN_ATTEMPTS, removeServicesFromUser } from "../utils/helpers";
+import { OAuth2Client } from "google-auth-library";
+
+const client = new OAuth2Client();
 
 class AuthenticationLogic {
   signup = async (user: IUserModel): Promise<string> => {
@@ -55,15 +57,21 @@ class AuthenticationLogic {
     return token;
   };
 
-  google = async (userDetailsByGoogle: CredentialRequest): Promise<string> => {
-    const email = await google.getUserEmailFromGoogleToken(userDetailsByGoogle.access_token);
+  google = async (credential: string, clientId: string): Promise<string> => {
+    const loginTicket = await client.verifyIdToken({ idToken: credential, audience: clientId });
+    const email = loginTicket.getPayload().email;
+
+    if (!email) {
+      throw new ClientError(400 ,'Some error while trying to get the user email')
+    }
+
     const isSigned = await UserModel.exists({ 'emails.email': email }).exec();
     let user: IUserModel = null;
 
     if (isSigned) {
       user = await UserModel.findOne({ 'emails.email': email }).select('-services').exec();
     } else {
-      const payload = await google.getGoogleDetails(userDetailsByGoogle.access_token);
+      const payload = loginTicket.getPayload();
       user = await google.createUserForGoogleAccounts(payload);
     }
     if (!user) {
