@@ -65,7 +65,7 @@ export const insertBankAccount = async (
   account: TransactionsAccount
 ): Promise<IUserBanksModal> => {
   const banksAccount = await bankLogic.fetchBanksAccounts(user_id);
-  const currBankAccount = banksAccount.banks.find((b) => b.bankName.toLowerCase() === details.companyId.toLowerCase());
+  const currBankAccount = banksAccount?.banks?.find((b) => b.bankName.toLowerCase() === details.companyId.toLowerCase());
   if (currBankAccount) {
     const query = createUpdateQuery(user_id, account, details);
     const options = {

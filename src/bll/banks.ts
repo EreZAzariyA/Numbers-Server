@@ -226,7 +226,7 @@ class BankLogic {
 
       if (transaction.amount && typeof transaction.amount === 'number') {
         categoriesSpent[originalTransactionCategory.name] = categoriesSpent[originalTransactionCategory.name] || 0;
-        categoriesSpent[originalTransactionCategory.name] += Math.abs(transaction.amount);
+        categoriesSpent[originalTransactionCategory.name] += transaction.amount;
       }
       transactionsToInsert.push(transaction);
     }

@@ -11,7 +11,10 @@ const BanksSchema = new Schema<IUserBanksModal>({
     type: Schema.Types.ObjectId,
     required: [true, "User id is missing"]
   },
-  banks: [BankScheme]
+  banks: {
+    type: [BankScheme],
+    default: []
+  }
 }, {
   versionKey: false,
   autoIndex: true,
