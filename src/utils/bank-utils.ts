@@ -65,7 +65,8 @@ export const insertBankAccount = async (
   account: TransactionsAccount
 ): Promise<IUserBanksModal> => {
   const banksAccount = await bankLogic.fetchBanksAccounts(user_id);
-  if (banksAccount) {
+  const currBankAccount = banksAccount.banks.find((b) => b.bankName.toLowerCase() === details.companyId.toLowerCase());
+  if (currBankAccount) {
     const query = createUpdateQuery(user_id, account, details);
     const options = {
       user_id: user_id,
@@ -85,20 +86,18 @@ export const insertBankAccount = async (
     }
   }
 
-  const newBank = await createBank(details.companyId, details, account);
+  try {
+    const newBank = await createBank(details.companyId, details, account);
+    const updatedBankAccount = await Banks.findOneAndUpdate(
+      { user_id: user_id },
+      { $push: { banks: newBank } },
+      { new: true, upsert: true }
+    ).exec();
 
-  const newBanksAccount = new Banks({
-    user_id,
-    banks: [newBank]
-  });
-
-  const errors = newBanksAccount.validateSync();
-  if (errors) {
-    console.log({ errors });
-    throw new ClientError(500, errors.message);
+    return updatedBankAccount;
+  } catch (err: any) {
+    console.log({err});
   }
-
-  return newBanksAccount.save();
 };
 
 export const createBank = async (
@@ -114,9 +113,9 @@ export const createBank = async (
       balance: account.balance
     },
     extraInfo: account.info,
-    pastOrFutureDebits: account.pastOrFutureDebits,
-    creditCards: account.cardsPastOrFutureDebit.cardsBlock,
-    savings: account.saving,
+    pastOrFutureDebits: account?.pastOrFutureDebits,
+    creditCards: account.cardsPastOrFutureDebit?.cardsBlock,
+    savings: account?.saving,
     lastConnection: new Date().valueOf()
   });
   return bankAccount;
@@ -132,13 +131,13 @@ export const createUpdateQuery = (
     'banks.$.bankName': SupportedCompanies[details.companyId],
     'banks.$.lastConnection': new Date().valueOf(),
     'banks.$.details': {
-      accountNumber: account.accountNumber,
-      balance: account.balance
+      accountNumber: account?.accountNumber,
+      balance: account?.balance
     },
-    'banks.$.extraInfo': account.info,
-    'banks.$.pastOrFutureDebits': account.pastOrFutureDebits,
-    'banks.$.creditCards': account.cardsPastOrFutureDebit.cardsBlock,
-    'banks.$.savings': account.saving,
+    'banks.$.extraInfo': account?.info,
+    'banks.$.pastOrFutureDebits': account?.pastOrFutureDebits,
+    'banks.$.creditCards': account?.cardsPastOrFutureDebit?.cardsBlock,
+    'banks.$.savings': account?.saving,
     ...(details.save && {
       'banks.$.credentials': jwt.createNewToken(details)
     })
