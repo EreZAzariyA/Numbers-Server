@@ -11,7 +11,6 @@ class TransactionsLogic {
   fetchUserBankTransaction = async (user_id: string, transaction: Transaction): Promise<ITransactionModel> => {
     const trans = Transactions.findOne({
       user_id,
-      status: transaction.status,
       description: transaction.description,
       identifier: transaction.identifier
     }).exec();

@@ -68,4 +68,15 @@ router.put('/update-bank-details/:user_id', async (req: Request, res: Response, 
   }
 });
 
+router.post('/set-main-account/:user_id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user_id = req.params.user_id;
+    const bank_id = req.body.bank_id;
+    await bankLogic.setMainBankAccount(user_id, bank_id);
+    res.sendStatus(200);
+  } catch (err: any) {
+    next(err);
+  }
+})
+
 export default router;

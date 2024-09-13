@@ -256,6 +256,26 @@ class BankLogic {
     });
     return bankPastOrFutureDebits;
   };
+
+  setMainBankAccount = async (user_id: string, bank_id: string): Promise<void> => {
+    try {
+      const bankAccount = await this.fetchBanksAccounts(user_id, { 'banks._id': bank_id });
+      const banks = bankAccount.banks.map((bank) => {
+        if (bank._id.toString() === bank_id.toString()) {
+          bank.isMainAccount = true;
+        } else {
+          bank.isMainAccount = false;
+        }
+        return bank;
+      });
+      await Banks.findOneAndUpdate(
+        { user_id: bankAccount.user_id },
+        { $set: { banks } }
+      ).exec();
+    } catch (err: any) {
+      throw new ClientError(500, `Error saving the document: ${err}`)
+    }
+  }
 };
 
 const bankLogic = new BankLogic();

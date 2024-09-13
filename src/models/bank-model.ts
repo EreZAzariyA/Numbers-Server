@@ -48,6 +48,7 @@ const AccountSavesScheme = new Schema<AccountSavesType>({
 export interface IBankModal extends Document {
   bankName: string;
   credentials: string;
+  isMainAccount: boolean;
   details: {
     accountNumber: string;
     balance: number;
@@ -67,6 +68,7 @@ export const BankScheme = new Schema<IBankModal>({
     required: [true, "Bank name is missing"],
   },
   credentials: String,
+  isMainAccount: Boolean,
   details: {
     accountNumber: Number,
     balance: Number
