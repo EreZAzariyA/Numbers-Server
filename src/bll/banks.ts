@@ -186,7 +186,8 @@ class BankLogic {
         originalAmount,
         chargedAmount,
         description,
-        categoryDescription
+        categoryDescription,
+        category,
       } = originalTransaction;
 
       const existedTransaction = await transactionsLogic.fetchUserBankTransaction(originalTransaction);
@@ -201,10 +202,11 @@ class BankLogic {
         }
         continue;
       }
-      let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, categoryDescription);
+
+      let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, category ?? categoryDescription);
       if (!originalTransactionCategory?._id) {
-        if (categoryDescription) {
-          originalTransactionCategory = await categoriesLogic.addNewCategory(categoryDescription, user_id);
+        if (category ?? categoryDescription) {
+          originalTransactionCategory = await categoriesLogic.addNewCategory(category ?? categoryDescription, user_id);
         } else {
           originalTransactionCategory = defCategory;
         }
@@ -213,8 +215,8 @@ class BankLogic {
       const transaction = new Transactions({
         user_id,
         date,
-        identifier: identifier || new mongoose.Types.ObjectId().toString(),
-        description: description?.trim(),
+        identifier,
+        description,
         companyId,
         status,
         amount: originalAmount || chargedAmount,
@@ -226,8 +228,6 @@ class BankLogic {
 
     try {
       const inserted = await Transactions.insertMany(transactionsToInsert);
-      console.log({inserted});
-      
       return inserted || [];
     } catch (err: any) {
       console.log({ ['bankLogic/importTransactions']: err?.message });
