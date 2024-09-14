@@ -4,7 +4,7 @@ import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactio
 export interface ITransactionModel extends Document {
   user_id: Schema.Types.ObjectId;
   date: string;
-  identifier?: number | string;
+  identifier: number | string;
   category_id: Schema.Types.ObjectId;
   description: string;
   amount: number;
@@ -22,13 +22,18 @@ const TransactionsSchema = new Schema<ITransactionModel>({
     trim: true,
     required: [true, "Date is missing"],
   },
-  identifier: Schema.Types.Mixed,
+  identifier: {
+    type: Schema.Types.Mixed,
+    unique: true,
+    sparse: true,
+  },
   category_id: {
     type: Schema.Types.ObjectId,
     required: [true, "Category id is missing"],
   },
   description: {
     type: String,
+    trim: true,
     required: [true, "Description is missing"],
   },
   amount: {

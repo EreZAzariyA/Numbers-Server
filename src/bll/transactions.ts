@@ -10,9 +10,11 @@ class TransactionsLogic {
 
   fetchUserBankTransaction = async (transaction: Transaction): Promise<ITransactionModel> => {
     const trans = await Transactions.findOne({
-      date: transaction.date,
-      description: transaction.description,
-      amount: transaction.chargedAmount,
+      ...(transaction?.identifier ? { identifier: transaction.identifier } : {
+        description: transaction.description,
+        date: transaction.date,
+        amount: transaction.chargedAmount,
+      })
     }).exec();
     return trans;
   };
