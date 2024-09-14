@@ -177,8 +177,6 @@ class BankLogic {
       }
     }
 
-    const categoriesSpent: object = {};
-
     const transactionsToInsert: ITransactionModel[] = [];
     for (const originalTransaction of transactions) {
       const {
@@ -191,9 +189,9 @@ class BankLogic {
         categoryDescription
       } = originalTransaction;
 
-      const existedTransaction = await transactionsLogic.fetchUserBankTransaction(user_id, originalTransaction);
+      const existedTransaction = await transactionsLogic.fetchUserBankTransaction(originalTransaction);
       if (existedTransaction) {
-        if (existedTransaction.status !== originalTransaction.status) {
+        if (existedTransaction.status?.toLowerCase() !== originalTransaction.status?.toLowerCase()) {
           try {
             await transactionsLogic.updateTransactionStatus(existedTransaction, status);
           } catch (err: any) {
@@ -203,7 +201,6 @@ class BankLogic {
         }
         continue;
       }
-
       let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, categoryDescription);
       if (!originalTransactionCategory?._id) {
         if (categoryDescription) {
@@ -217,23 +214,20 @@ class BankLogic {
         user_id,
         date,
         identifier: identifier || new mongoose.Types.ObjectId().toString(),
-        description,
+        description: description?.trim(),
         companyId,
         status,
         amount: originalAmount || chargedAmount,
         category_id: originalTransactionCategory._id
       });
 
-      if (transaction.amount && typeof transaction.amount === 'number') {
-        categoriesSpent[originalTransactionCategory.name] = categoriesSpent[originalTransactionCategory.name] || 0;
-        categoriesSpent[originalTransactionCategory.name] += transaction.amount;
-      }
       transactionsToInsert.push(transaction);
     }
 
     try {
-      await categoriesLogic.updateManyCategoriesSpentAmount(user_id, categoriesSpent);
       const inserted = await Transactions.insertMany(transactionsToInsert);
+      console.log({inserted});
+      
       return inserted || [];
     } catch (err: any) {
       console.log({ ['bankLogic/importTransactions']: err?.message });

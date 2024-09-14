@@ -8,11 +8,11 @@ class TransactionsLogic {
     return Transactions.find({ user_id, ...query }).exec();
   };
 
-  fetchUserBankTransaction = async (user_id: string, transaction: Transaction): Promise<ITransactionModel> => {
-    const trans = Transactions.findOne({
-      user_id,
+  fetchUserBankTransaction = async (transaction: Transaction): Promise<ITransactionModel> => {
+    const trans = await Transactions.findOne({
+      date: transaction.date,
       description: transaction.description,
-      identifier: transaction.identifier
+      amount: transaction.chargedAmount,
     }).exec();
     return trans;
   };
@@ -89,7 +89,6 @@ class TransactionsLogic {
       { $set: { status } },
       { new: true }
     ).exec();
-
   };
 
   removeTransaction = async (transaction_id: string): Promise<void> => {
