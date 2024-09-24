@@ -1,21 +1,26 @@
-import { Document, model, Schema } from "mongoose";
 import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { Document, model, Schema } from "mongoose";
 
-export interface ITransactionModel extends Document {
+export interface ICardTransactionModel extends Document {
   user_id: Schema.Types.ObjectId;
+  cardNumber: string | number;
   date: string;
   identifier: number | string;
   category_id: Schema.Types.ObjectId;
   description: string;
   amount: number;
-  status: string;
-  companyId: string;
+  status?: TransactionStatuses;
+  companyId?: string;
 };
 
-const TransactionsSchema = new Schema<ITransactionModel>({
+const CardTransactionsSchema = new Schema<ICardTransactionModel>({
   user_id: {
     type: Schema.Types.ObjectId,
     required: [true, 'User id is missing'],
+  },
+  cardNumber: {
+    type: Schema.Types.Mixed,
+    required: [true, 'Card number is missing'],
   },
   date: {
     type: String,
@@ -41,10 +46,7 @@ const TransactionsSchema = new Schema<ITransactionModel>({
     type: Number,
     required: [true, "Amount is missing"],
   },
-  status: {
-    type: String,
-    default: TransactionStatuses.Completed
-  },
+  status: String,
   companyId: String
 }, {
   versionKey: false,
@@ -52,4 +54,4 @@ const TransactionsSchema = new Schema<ITransactionModel>({
   timestamps: true
 });
 
-export const Transactions = model<ITransactionModel>('Transactions', TransactionsSchema, 'transactions');
+export const CardTransactions = model<ICardTransactionModel>('CardTransactions', CardTransactionsSchema, 'cardTransactions');

@@ -1,4 +1,4 @@
-import { AccountInfoType, AccountSavesType, CardBlockType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { AccountInfoType, AccountSavesType, CardBlockType, CreditCardProvidersType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
 const AccountInfoScheme = new Schema<AccountInfoType>({
@@ -37,7 +37,7 @@ const CreditCardsScheme = new Schema<CardBlockType>({
   NISTotalDebit: Number,
   USDTotalDebit: Number,
   EURTotalDebit: Number,
-}, { _id: false });
+});
 
 const AccountSavesScheme = new Schema<AccountSavesType>({
   businessDate: String,
@@ -45,10 +45,11 @@ const AccountSavesScheme = new Schema<AccountSavesType>({
   currencyCode: String
 }, { _id: false });
 
-export interface IBankModal extends Document {
+export interface IAccountModal extends Document {
   bankName: string;
   credentials: string;
   isMainAccount: boolean;
+  isCardProvider: boolean;
   details: {
     accountNumber: string;
     balance: number;
@@ -56,31 +57,38 @@ export interface IBankModal extends Document {
   lastConnection: number;
   extraInfo: Partial<AccountInfoType>;
   pastOrFutureDebits: PastOrFutureDebitType[];
-  creditCards: CardBlockType[];
+  creditCards: CardBlockType[] | CreditCardProvidersType[];
   savings: AccountSavesType;
   createdAt: Date;
   updatedAt: Date;
 };
 
-export const BankScheme = new Schema<IBankModal>({
+export const BankScheme = new Schema<IAccountModal>({
   bankName: {
     type: String,
     required: [true, "Bank name is missing"],
   },
   credentials: String,
   isMainAccount: Boolean,
+  isCardProvider: Boolean,
   details: {
-    accountNumber: Number,
-    balance: Number
+    accountNumber: { type: Number, required: false },
+    balance: { type: Number, required: false }
   },
   lastConnection: {
     type: Number,
     default: new Date().valueOf()
   },
   extraInfo: AccountInfoScheme,
-  pastOrFutureDebits: [PastOrFutureDebitsScheme],
-  creditCards: [CreditCardsScheme],
-  savings: AccountSavesScheme
+  savings: AccountSavesScheme,
+  pastOrFutureDebits: {
+    type: [PastOrFutureDebitsScheme],
+    default: undefined
+  },
+  creditCards: {
+    type: [CreditCardsScheme],
+    default: undefined
+  },
 });
 
-export const BankModel = model<IBankModal>('Bank', BankScheme);
+export const AccountModel = model<IAccountModal>('Bank', BankScheme);

@@ -5,14 +5,25 @@ import ClientError from "../models/client-error";
 import { ErrorMessages } from "./helpers";
 import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "./jwt";
-import { Banks, IUserBanksModal } from "../collections/Banks";
-import { BankModel, IBankModal } from "../models/bank-model";
+import { Banks } from "../collections/Banks";
+import { AccountModel, IAccountModal } from "../models/bank-model";
 
 export const SupportedCompanies = {
   [CompanyTypes.discount]: CompanyTypes.discount,
   [CompanyTypes.max]: CompanyTypes.max,
   [CompanyTypes.behatsdaa]: CompanyTypes.behatsdaa,
-  [CompanyTypes.leumi]: CompanyTypes.leumi
+  [CompanyTypes.leumi]: CompanyTypes.leumi,
+  [CompanyTypes.visaCal]: CompanyTypes.visaCal,
+};
+
+export const CreditCardProviders = [
+  CompanyTypes.visaCal,
+  CompanyTypes.max,
+  CompanyTypes.behatsdaa,
+];
+
+export const isCardProviderCompany = (company: string) => {
+  return CreditCardProviders.includes(CompanyTypes[company]) || false;
 };
 
 export const createCredentials = (details: UserBankCredentialModel): ScraperCredentials => {
@@ -20,17 +31,22 @@ export const createCredentials = (details: UserBankCredentialModel): ScraperCred
     throw new ClientError(500, `${ErrorMessages.COMPANY_NOT_SUPPORTED} - ${details.companyId}`);
   }
 
-  let credentials: ScraperCredentials;
-
+  let credentials: ScraperCredentials = null;
   switch (details.companyId) {
-    case SupportedCompanies.discount:
+    case SupportedCompanies[CompanyTypes.discount]:
       credentials = {
         id: details.id,
         password: details.password,
         num: details.num
       };
     break;
-    case SupportedCompanies.max:
+    case SupportedCompanies[CompanyTypes.max]:
+      credentials = {
+        username: details.username,
+        password: details.password
+      };
+    break;
+    case SupportedCompanies[CompanyTypes.visaCal]:
       credentials = {
         username: details.username,
         password: details.password
@@ -63,9 +79,12 @@ export const insertBankAccount = async (
   user_id: string,
   details: UserBankCredentialModel,
   account: TransactionsAccount
-): Promise<IUserBanksModal> => {
+): Promise<IAccountModal> => {
   const banksAccount = await bankLogic.fetchBanksAccounts(user_id);
-  const currBankAccount = banksAccount?.banks?.find((b) => b.bankName.toLowerCase() === details.companyId.toLowerCase());
+  const currBankAccount = banksAccount?.banks?.find((b) => {
+    return b.bankName.toLowerCase() === details.companyId.toLowerCase();
+  });
+
   if (currBankAccount) {
     const query = createUpdateQuery(user_id, account, details);
     const options = {
@@ -79,7 +98,7 @@ export const insertBankAccount = async (
 
     try {
       const bankAccounts = await Banks.findOneAndUpdate(options, query, projection).exec();
-      return bankAccounts;
+      return bankAccounts.banks.find((b) => b._id === currBankAccount._id);
     } catch (error: any) {
       console.log(error);
       return;
@@ -88,15 +107,15 @@ export const insertBankAccount = async (
 
   try {
     const newBank = await createBank(details.companyId, details, account);
-    const updatedBankAccount = await Banks.findOneAndUpdate(
+    await Banks.findOneAndUpdate(
       { user_id: user_id },
       { $push: { banks: newBank } },
       { new: true, upsert: true }
     ).exec();
 
-    return updatedBankAccount;
+    return newBank;
   } catch (err: any) {
-    console.log({err});
+    console.log({ err });
   }
 };
 
@@ -104,22 +123,33 @@ export const createBank = async (
   bankName: string,
   credentialsDetails: UserBankCredentialModel,
   account: TransactionsAccount
-): Promise<IBankModal> => {
-  const bankAccount = new BankModel({
+): Promise<IAccountModal> => {
+  const isCardProvider = isCardProviderCompany(credentialsDetails.companyId);
+
+  const bankAccount = new AccountModel({
     bankName,
-    credentials: jwt.createNewToken(credentialsDetails),
-    details: {
-      accountNumber: account.accountNumber,
-      balance: account.balance
-    },
-    extraInfo: account.info,
-    pastOrFutureDebits: account?.pastOrFutureDebits,
-    creditCards: account.cardsPastOrFutureDebit?.cardsBlock,
-    savings: account?.saving,
-    lastConnection: new Date().valueOf()
+    isCardProvider,
+    lastConnection: new Date().valueOf(),
+    ...(credentialsDetails?.save && {
+      credentials: jwt.createNewToken(credentialsDetails),
+    }),
+    ...(isCardProvider ? {
+      creditCards: account.creditCards
+    } : {
+      details: {
+        accountNumber: account.accountNumber,
+        balance: account.balance,
+      },
+      creditCards: account.cardsPastOrFutureDebit?.cardsBlock,
+      extraInfo: account.info,
+      pastOrFutureDebits: account?.pastOrFutureDebits,
+      savings: account?.saving,
+    })
   });
+  console.log({ bankAccount });
+
   return bankAccount;
-}
+};
 
 export const createUpdateQuery = (
   user_id: string,

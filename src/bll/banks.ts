@@ -1,24 +1,22 @@
 import { UserModel } from "../models/user-model";
 import ClientError from "../models/client-error";
-import { SupportedCompanies, getBankData, insertBankAccount } from "../utils/bank-utils";
+import { SupportedCompanies, getBankData, insertBankAccount, isCardProviderCompany } from "../utils/bank-utils";
 import { ErrorMessages, isArrayAndNotEmpty } from "../utils/helpers";
 import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "../utils/jwt";
 import categoriesLogic from "./categories";
 import { ITransactionModel, Transactions } from "../collections/Transactions";
 import transactionsLogic from "./transactions";
-import mongoose from "mongoose";
-import { IUserBanksModal, Banks } from "../collections/Banks";
-import { IBankModal } from "../models/bank-model";
+import { IBanksModal, Banks } from "../collections/Banks";
+import { IAccountModal } from "../models/bank-model";
+import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
+import { ICategoryModel } from "../models/category-model";
 
-interface BankAccountDetails {
-  bank: IUserBanksModal;
-  account: TransactionsAccount;
-};
 interface RefreshedBankAccountDetails {
-  bank: IBankModal;
+  bank: IAccountModal;
   account: TransactionsAccount;
   importedTransactions?: ITransactionModel[];
+  importedCategories?: ICategoryModel[];
 };
 
 export interface UserBankCredentialModel {
@@ -31,21 +29,19 @@ export interface UserBankCredentialModel {
 };
 
 class BankLogic {
-  fetchBanksAccounts = async (user_id: string, query = {}): Promise<IUserBanksModal> => {
-    const account = await Banks.findOne({ user_id, ...query }).exec();
-    return account;
+  fetchBanksAccounts = async (user_id: string, query = {}): Promise<IBanksModal | null> => {
+    return Banks.findOne({ user_id, ...query }).exec();
   };
 
-  fetchOneBankAccount = async (user_id: string, bank_id: string): Promise<IBankModal> => {
+  fetchOneBankAccount = async (user_id: string, bank_id: string): Promise<IAccountModal> => {
     const banksAccount = await this.fetchBanksAccounts(user_id);
-    if (banksAccount) {
-      const bank = banksAccount.banks.find((bank) => bank._id?.toString() === bank_id);
-      return bank;
-    }
-    return null;
+    return banksAccount?.banks?.find((bank) => bank._id?.toString() === bank_id);
   };
 
-  fetchBankData = async (details: UserBankCredentialModel, user_id: string): Promise<BankAccountDetails> => {
+  fetchBankData = async (
+    details: UserBankCredentialModel,
+    user_id: string
+  ): Promise<RefreshedBankAccountDetails> => {
     const user = await UserModel.findById(user_id).exec();
     if (!user) {
       throw new ClientError(500, ErrorMessages.USER_NOT_FOUND);
@@ -66,8 +62,8 @@ class BankLogic {
       const bank = await insertBankAccount(user_id, details, account);
 
       return {
-        bank,
         account,
+        bank
       };
     } catch (err: any) {
       console.log(err);
@@ -111,10 +107,10 @@ class BankLogic {
 
     const account = scrapeResult.accounts[0];
 
-    let insertedInvoices = [];
+    let insertedTransactions = [];
     if (account.txns && isArrayAndNotEmpty(account.txns)) {
       try {
-        insertedInvoices = await this.importTransactions(account.txns, user_id, details.companyId);
+        insertedTransactions = await this.importTransactions(account.txns, user_id, details.companyId);
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
@@ -135,7 +131,7 @@ class BankLogic {
       return {
         bank,
         account,
-        importedTransactions: insertedInvoices,
+        importedTransactions: insertedTransactions,
       };
     } catch (err: any) {
       throw new ClientError(500, err.message);
@@ -167,7 +163,11 @@ class BankLogic {
     return res;
   };
 
-  importTransactions = async (transactions: Transaction[], user_id: string, companyId: string) => {
+  importTransactions = async (
+    transactions: Transaction[],
+    user_id: string,
+    companyId: string,
+  ): Promise<ITransactionModel[] | ICardTransactionModel[]> => {
     let defCategory = await categoriesLogic.fetchUserCategory(user_id, 'Others');
     if (!defCategory) {
       try {
@@ -177,10 +177,12 @@ class BankLogic {
       }
     }
 
+    const isCardTransactions = isCardProviderCompany(companyId);
     const transactionsToInsert: ITransactionModel[] = [];
+    const cardsTransactionsToInsert: ICardTransactionModel[] = [];
+
     for (const originalTransaction of transactions) {
       const {
-        identifier,
         status,
         date,
         originalAmount,
@@ -188,9 +190,10 @@ class BankLogic {
         description,
         categoryDescription,
         category,
+        cardNumber: transCardNumber,
       } = originalTransaction;
 
-      const existedTransaction = await transactionsLogic.fetchUserBankTransaction(originalTransaction);
+      const existedTransaction = await transactionsLogic.fetchUserBankTransaction(originalTransaction, companyId);
       if (existedTransaction) {
         if (existedTransaction.status?.toLowerCase() !== originalTransaction.status?.toLowerCase()) {
           try {
@@ -202,8 +205,10 @@ class BankLogic {
         }
         continue;
       }
+      if (existedTransaction) continue;
 
-      let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, category ?? categoryDescription);
+      const originalCategory = category ?? categoryDescription;
+      let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, originalCategory);
       if (!originalTransactionCategory?._id) {
         if (category ?? categoryDescription) {
           originalTransactionCategory = await categoriesLogic.addNewCategory(category ?? categoryDescription, user_id);
@@ -212,25 +217,54 @@ class BankLogic {
         }
       }
 
-      const transaction = new Transactions({
-        user_id,
-        date,
-        identifier,
-        description,
-        companyId,
-        status,
-        amount: originalAmount || chargedAmount,
-        category_id: originalTransactionCategory._id
-      });
+      const identifier = originalTransaction.identifier ?? undefined;
 
-      transactionsToInsert.push(transaction);
+      let transaction: ITransactionModel | ICardTransactionModel = null;
+      if (isCardTransactions) {
+        transaction = new CardTransactions({
+          user_id,
+          cardNumber: transCardNumber,
+          date,
+          identifier,
+          description,
+          companyId,
+          status,
+          amount: originalAmount || chargedAmount,
+          category_id: originalTransactionCategory._id,
+        });
+        cardsTransactionsToInsert.push(transaction);
+      } else {
+        transaction = new Transactions({
+          user_id,
+          date,
+          identifier,
+          description,
+          companyId,
+          status,
+          amount: originalAmount || chargedAmount,
+          category_id: originalTransactionCategory._id
+        });
+        transactionsToInsert.push(transaction);
+      }
     }
 
+    let inserted: ITransactionModel[] | ICardTransactionModel[] = [];
     try {
-      const inserted = await Transactions.insertMany(transactionsToInsert);
-      return inserted || [];
+      if (isCardTransactions) {
+        inserted = await CardTransactions.insertMany(cardsTransactionsToInsert, {
+          ordered: false,
+          throwOnValidationError: false,
+        });
+      } else {
+        inserted = await Transactions.insertMany(transactionsToInsert,
+          { ordered: false,
+            throwOnValidationError: false,
+          });
+      }
+
+      return inserted;
     } catch (err: any) {
-      console.log({ ['bankLogic/importTransactions']: err?.message });
+      console.log({ ['bankLogic/importTransactions']: err?.message, inserted });
       throw new ClientError(500, 'An error occurred while importing transactions');
     }
   };
@@ -269,7 +303,7 @@ class BankLogic {
     } catch (err: any) {
       throw new ClientError(500, `Error saving the document: ${err}`)
     }
-  }
+  };
 };
 
 const bankLogic = new BankLogic();

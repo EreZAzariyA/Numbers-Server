@@ -2,42 +2,61 @@ import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/l
 import ClientError from "../models/client-error";
 import { ITransactionModel, Transactions } from "../collections/Transactions";
 import categoriesLogic, { getAmountToUpdate } from "./categories";
+import { isCardProviderCompany } from "../utils/bank-utils";
+import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
 
 class TransactionsLogic {
   fetchUserTransactions = async (user_id: string, query = {}): Promise<ITransactionModel[]> => {
     return Transactions.find({ user_id, ...query }).exec();
   };
 
-  fetchUserBankTransaction = async (transaction: Transaction): Promise<ITransactionModel> => {
-    const trans = await Transactions.findOne({
-      ...(transaction?.identifier ? { identifier: transaction.identifier } : {
-        description: transaction.description,
-        date: transaction.date,
-        amount: transaction.chargedAmount,
-      })
-    }).exec();
+  fetchUserBankTransaction = async (
+    transaction: Transaction,
+    companyId: string
+  ): Promise<ITransactionModel | ICardTransactionModel> => {
+    const isCardTransaction = isCardProviderCompany(companyId);
+    let trans: ITransactionModel | ICardTransactionModel = null;
+    const query: object = {
+      ...(transaction?.identifier ?
+        { identifier: transaction.identifier.toString() } :
+        {
+          description: transaction.description,
+          date: transaction.date,
+          amount: transaction.chargedAmount,
+        }
+      )
+    };
+
+    if (isCardTransaction) {
+      trans = await CardTransactions.findOne(query).exec();
+    } else {
+      trans = await Transactions.findOne(query).exec();
+    }
+
     return trans;
   };
 
-  newTransaction = async (user_id: string, transaction: ITransactionModel):Promise<ITransactionModel> => {
+  newTransaction = async (
+    user_id: string,
+    transaction: ITransactionModel | ICardTransactionModel
+  ):Promise<ITransactionModel | ICardTransactionModel> => {
     if (!user_id) {
       throw new ClientError(500, 'User id is missing');
     }
 
-    const newTransaction = new Transactions({
-      user_id,
-      ...transaction
-    });
+    const isCardTransaction = isCardProviderCompany(transaction.companyId);
+    let newTransaction: ITransactionModel | ICardTransactionModel = null;
 
-    try {
-      await categoriesLogic.updateCategorySpentAmount(
+    if (isCardTransaction) {
+      newTransaction = new CardTransactions({
         user_id,
-        newTransaction.category_id,
-        newTransaction.amount
-      );
-    } catch (err: any) {
-      console.log(err);
-      throw new ClientError(500, 'Some error while trying to increment the category spent amount');
+        ...transaction
+      });
+    } else {
+      newTransaction = new Transactions({
+        user_id,
+        ...transaction
+      });
     }
 
     const errors = newTransaction.validateSync();
@@ -85,7 +104,10 @@ class TransactionsLogic {
     return updatedTransaction;
   };
 
-  updateTransactionStatus = async (transaction: ITransactionModel, status: string): Promise<ITransactionModel> => {
+  updateTransactionStatus = async (
+    transaction: ITransactionModel | ICardTransactionModel,
+    status: string
+  ): Promise<ITransactionModel | ICardTransactionModel> => {
     return await Transactions.findByIdAndUpdate(
       transaction._id,
       { $set: { status } },
