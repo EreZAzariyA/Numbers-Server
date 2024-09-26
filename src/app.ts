@@ -13,7 +13,12 @@ import bankRouter from "./routes/bank";
 const app = express();
 app.use(express.json());
 app.use(cors({
-  origin: ['http://127.0.0.1:3000', 'http://localhost:3000', 'https://ea-numbers.vercel.app'],
+  origin: [
+    'http://127.0.0.1:3000',
+    'http://localhost:3000',
+    'https://ea-numbers.vercel.app',
+    'https://ea-numbers-test.vercel.app',
+  ],
   credentials: true
 }));
 
