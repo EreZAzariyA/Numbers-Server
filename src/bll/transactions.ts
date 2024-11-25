@@ -18,7 +18,7 @@ class TransactionsLogic {
     let trans: ITransactionModel | ICardTransactionModel = null;
     const query: object = {
       ...(transaction?.identifier ?
-        { identifier: transaction.identifier.toString() } :
+        { identifier: transaction.identifier } :
         {
           description: transaction.description,
           date: transaction.date,
@@ -39,7 +39,7 @@ class TransactionsLogic {
   newTransaction = async (
     user_id: string,
     transaction: ITransactionModel | ICardTransactionModel
-  ):Promise<ITransactionModel | ICardTransactionModel> => {
+  ): Promise<ITransactionModel | ICardTransactionModel> => {
     if (!user_id) {
       throw new ClientError(500, 'User id is missing');
     }

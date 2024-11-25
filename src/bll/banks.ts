@@ -115,7 +115,7 @@ class BankLogic {
         throw new ClientError(500, err.message);
       }
     }
-    if (account.pastOrFutureDebits && isArrayAndNotEmpty(account.pastOrFutureDebits)) {
+    if (isArrayAndNotEmpty(account?.pastOrFutureDebits)) {
       try {
         await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits);
       } catch (err: any) {
@@ -205,7 +205,6 @@ class BankLogic {
         }
         continue;
       }
-      if (existedTransaction) continue;
 
       const originalCategory = category ?? categoryDescription;
       let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, originalCategory);
