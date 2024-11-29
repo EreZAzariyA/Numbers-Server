@@ -1,7 +1,7 @@
 import { UserModel } from "../models/user-model";
 import ClientError from "../models/client-error";
 import { SupportedCompanies, getBankData, insertBankAccount, isCardProviderCompany } from "../utils/bank-utils";
-import { ErrorMessages, isArrayAndNotEmpty } from "../utils/helpers";
+import { ErrorMessages, getFutureDebitDate, isArrayAndNotEmpty } from "../utils/helpers";
 import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "../utils/jwt";
 import categoriesLogic from "./categories";
@@ -118,14 +118,15 @@ class BankLogic {
 
     if (account?.pastOrFutureDebits && isArrayAndNotEmpty(account?.pastOrFutureDebits)) {
       try {
-        await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits || []);
+        const updatedPastOrFutureDebits = await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits);
+        updatedPastOrFutureDebits.sort((a, b) => (getFutureDebitDate(a.debitMonth) - getFutureDebitDate(b.debitMonth)));
+        account.pastOrFutureDebits = updatedPastOrFutureDebits;
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
     }
 
     try {
-
       await insertBankAccount(user_id, details, account);
       const bank = await bankLogic.fetchOneBankAccount(user_id, bank_id);
 
@@ -272,16 +273,17 @@ class BankLogic {
   importPastOrFutureDebits = async (
     user_id: string,
     bank_id: string,
-    pastOrFutureDebits: PastOrFutureDebitType[]
+    pastOrFutureDebits: PastOrFutureDebitType[] = []
   ): Promise<PastOrFutureDebitType[]> => {
     const bankAccount = await this.fetchOneBankAccount(user_id, bank_id);
+    const bankPastOrFutureDebits = bankAccount.pastOrFutureDebits || [];
 
-    const bankPastOrFutureDebits = bankAccount?.pastOrFutureDebits || [];
     pastOrFutureDebits.forEach((debit) => {
-      if (bankPastOrFutureDebits.filter((d) => d.debitMonth === debit.debitMonth).length === 0) {
-        bankAccount[0].pastOrFutureDebits.push(debit);
+      if (!bankPastOrFutureDebits.find((d) => d.debitMonth === debit.debitMonth)) {
+        bankPastOrFutureDebits.push(debit);
       }
     });
+
     return bankPastOrFutureDebits;
   };
 

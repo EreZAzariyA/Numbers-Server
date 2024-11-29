@@ -146,7 +146,6 @@ export const createBank = async (
       savings: account?.saving,
     })
   });
-  console.log({ bankAccount });
 
   return bankAccount;
 };

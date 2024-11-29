@@ -30,3 +30,9 @@ export const isArray = (arr: any[]): boolean => {
 export const isArrayAndNotEmpty = (arr: any[]): boolean => {
   return isArray(arr) && arr.length > 0;
 };
+
+export const getFutureDebitDate = (dateString: string): number => {
+  const month = parseInt(dateString?.substring(0, 2)) - 1 || 0;
+  const year = parseInt(dateString?.substring(2)) || 0;
+  return new Date(year, month, 1).valueOf() || 0;
+};
