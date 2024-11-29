@@ -106,18 +106,19 @@ class BankLogic {
     }
 
     const account = scrapeResult.accounts[0];
-
     let insertedTransactions = [];
-    if (account.txns && isArrayAndNotEmpty(account.txns)) {
+
+    if (account?.txns && isArrayAndNotEmpty(account.txns)) {
       try {
         insertedTransactions = await this.importTransactions(account.txns, user_id, details.companyId);
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
     }
+
     if (account?.pastOrFutureDebits && isArrayAndNotEmpty(account?.pastOrFutureDebits)) {
       try {
-        await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits);
+        await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits || []);
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
