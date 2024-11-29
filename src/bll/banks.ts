@@ -115,7 +115,7 @@ class BankLogic {
         throw new ClientError(500, err.message);
       }
     }
-    if (isArrayAndNotEmpty(account?.pastOrFutureDebits)) {
+    if (account?.pastOrFutureDebits && isArrayAndNotEmpty(account?.pastOrFutureDebits)) {
       try {
         await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits);
       } catch (err: any) {
