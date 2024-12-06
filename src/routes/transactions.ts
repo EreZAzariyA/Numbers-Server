@@ -1,13 +1,19 @@
 import express, { NextFunction, Request, Response } from "express";
 import transactionsLogic from "../bll/transactions";
 
+type RequestBody = {
+  type: string;
+  query: object;
+};
+
 const router = express.Router();
 
 router.get("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const transactions = await transactionsLogic.fetchUserTransactions(user_id);
-    res.status(201).json(transactions);
+    const { type = null, query = {} }: Partial<RequestBody>  = req.query;
+    const { transactions, total } = await transactionsLogic.fetchUserTransactions(user_id, type, query);
+    res.status(201).json({ transactions, total });
   } catch (err: any) {
     next(err);
   }

@@ -1,13 +1,32 @@
 import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import ClientError from "../models/client-error";
 import { ITransactionModel, Transactions } from "../collections/Transactions";
+import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
 import categoriesLogic, { getAmountToUpdate } from "./categories";
 import { isCardProviderCompany } from "../utils/bank-utils";
-import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
 
 class TransactionsLogic {
-  fetchUserTransactions = async (user_id: string, query = {}): Promise<ITransactionModel[]> => {
-    return Transactions.find({ user_id, ...query }).exec();
+  fetchUserTransactions = async (
+    user_id: string,
+    type: string,
+    query: any,
+  ): Promise<{ transactions: ITransactionModel[] | ICardTransactionModel[], total: number }> => {
+    const { query: filter, projection, options } = query;
+    let transactions: ITransactionModel[] | ICardTransactionModel[] = [];
+    let total: number = 0;
+
+    if (type === 'card') {
+      total = await CardTransactions.countDocuments({ user_id, ...filter });
+      transactions = await CardTransactions.find({ user_id, ...filter }, projection, { ...options, sort: { 'date': -1 } })
+    } else {
+      total = await Transactions.countDocuments({ user_id, ...filter });
+      transactions = await Transactions.find({ user_id, ...filter }, projection, { ...options, sort: { 'date': -1 } })
+    }
+
+    return {
+      transactions,
+      total
+    };
   };
 
   fetchUserBankTransaction = async (
