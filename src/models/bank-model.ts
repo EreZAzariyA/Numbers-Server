@@ -1,4 +1,4 @@
-import { AccountInfoType, AccountSavesType, CardBlockType, CreditCardProvidersType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { AccountInfoType, AccountSavesType, CardBlockType, CreditCardProvidersType, MainLoansType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
 const AccountInfoScheme = new Schema<AccountInfoType>({
@@ -45,6 +45,43 @@ const AccountSavesScheme = new Schema<AccountSavesType>({
   currencyCode: String
 }, { _id: false });
 
+const LoanScheme = new Schema<MainLoansType>({
+  currentTimestamp: Number,
+  summary: {
+    currentMonthTotalPayment: Number,
+    totalBalance: Number,
+    totalBalanceCurrency: String,
+  },
+  loans: [{
+    loanAccount: String,
+    loanName: String,
+    numOfPayments: String,
+    numOfPaymentsRemained: String,
+    numOfPaymentsMade: String,
+    establishmentDate: String,
+    establishmentChannelCode: String,
+    loanCurrency: String,
+    loanAmount: Number,
+    totalInterestRate: Number,
+    firstPaymentDate: String,
+    lastPaymentDate: String,
+    nextPaymentDate: String,
+    previousPaymentDate: String,
+    nextPayment: Number,
+    previousPayment: Number,
+    baseInterestDescription: String,
+    loanBalance: Number,
+    prepaymentPenaltyFee: Number,
+    totalLoanBalance: Number,
+    finishDate: String,
+    loanRefundStatus: String,
+    establishmentValueDate: String,
+    currentMonthPayment: Number,
+    numberOfPartialPrepayments: String,
+    loanPurpose: String
+  }]
+}, { _id: false });
+
 export interface IAccountModal extends Document {
   bankName: string;
   credentials: string;
@@ -59,6 +96,7 @@ export interface IAccountModal extends Document {
   pastOrFutureDebits: PastOrFutureDebitType[];
   creditCards: CardBlockType[] | CreditCardProvidersType[];
   savings: AccountSavesType;
+  loans: MainLoansType;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -89,6 +127,7 @@ export const BankScheme = new Schema<IAccountModal>({
     type: [CreditCardsScheme],
     default: undefined
   },
+  loans: LoanScheme
 });
 
 export const AccountModel = model<IAccountModal>('Bank', BankScheme);

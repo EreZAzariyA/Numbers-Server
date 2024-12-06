@@ -86,23 +86,7 @@ export const insertBankAccount = async (
   });
 
   if (currBankAccount) {
-    const query = createUpdateQuery(user_id, account, details);
-    const options = {
-      user_id: user_id,
-      'banks.bankName': details.companyId
-    };
-    const projection = {
-      new: true,
-      upsert: true
-    };
-
-    try {
-      const bankAccounts = await Banks.findOneAndUpdate(options, query, projection).exec();
-      return bankAccounts.banks.find((b) => b._id === currBankAccount._id);
-    } catch (error: any) {
-      console.log(error);
-      return;
-    }
+    return await updateBank(currBankAccount, user_id, account, details);
   }
 
   try {
@@ -116,6 +100,31 @@ export const insertBankAccount = async (
     return newBank;
   } catch (err: any) {
     console.log({ err });
+  }
+};
+
+const updateBank = async (
+  currBankAccount: IAccountModal,
+  user_id: string,
+  account: TransactionsAccount,
+  details: UserBankCredentialModel
+): Promise<IAccountModal> => {
+  const query = createUpdateQuery(account, details);
+  const options = {
+    user_id: user_id,
+    'banks.bankName': details.companyId
+  };
+  const projection = {
+    new: true,
+    upsert: true
+  };
+
+  try {
+    const bankAccounts = await Banks.findOneAndUpdate(options, query, projection).exec();
+    return bankAccounts.banks.find((b) => b._id === currBankAccount._id);
+  } catch (error: any) {
+    console.log(error);
+    return;
   }
 };
 
@@ -144,6 +153,7 @@ export const createBank = async (
       extraInfo: account.info,
       pastOrFutureDebits: account?.pastOrFutureDebits,
       savings: account?.saving,
+      loans: account?.loans
     })
   });
 
@@ -151,22 +161,19 @@ export const createBank = async (
 };
 
 export const createUpdateQuery = (
-  user_id: string,
   account: TransactionsAccount,
   details: UserBankCredentialModel
 ): object => ({
   $set: {
-    'banks.$.user_id': user_id,
-    'banks.$.bankName': SupportedCompanies[details.companyId],
     'banks.$.lastConnection': new Date().valueOf(),
     'banks.$.details': {
-      accountNumber: account?.accountNumber,
       balance: account?.balance
     },
     'banks.$.extraInfo': account?.info,
     'banks.$.pastOrFutureDebits': account?.pastOrFutureDebits,
     'banks.$.creditCards': account?.cardsPastOrFutureDebit?.cardsBlock,
     'banks.$.savings': account?.saving,
+    'banks.$.loans': account?.loans,
     ...(details.save && {
       'banks.$.credentials': jwt.createNewToken(details)
     })

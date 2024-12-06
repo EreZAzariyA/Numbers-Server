@@ -118,7 +118,11 @@ class BankLogic {
 
     if (account?.pastOrFutureDebits && isArrayAndNotEmpty(account?.pastOrFutureDebits)) {
       try {
-        const updatedPastOrFutureDebits = await this.importPastOrFutureDebits(user_id, bank_id, account.pastOrFutureDebits);
+        const updatedPastOrFutureDebits = await this.importPastOrFutureDebits(
+          user_id,
+          bank_id,
+          account.pastOrFutureDebits
+        );
         updatedPastOrFutureDebits.sort((a, b) => (getFutureDebitDate(a.debitMonth) - getFutureDebitDate(b.debitMonth)));
         account.pastOrFutureDebits = updatedPastOrFutureDebits;
       } catch (err: any) {
