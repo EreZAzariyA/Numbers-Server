@@ -150,6 +150,7 @@ export const createBank = async (
         balance: account.balance,
       },
       creditCards: account.cardsPastOrFutureDebit?.cardsBlock,
+      cardsPastOrFutureDebit: account.cardsPastOrFutureDebit,
       extraInfo: account.info,
       pastOrFutureDebits: account?.pastOrFutureDebits,
       savings: account?.saving,
@@ -171,7 +172,7 @@ export const createUpdateQuery = (
     },
     'banks.$.extraInfo': account?.info,
     'banks.$.pastOrFutureDebits': account?.pastOrFutureDebits,
-    'banks.$.creditCards': account?.cardsPastOrFutureDebit?.cardsBlock,
+    'banks.$.cardsPastOrFutureDebit': account?.cardsPastOrFutureDebit,
     'banks.$.savings': account?.saving,
     'banks.$.loans': account?.loans,
     ...(details.save && {

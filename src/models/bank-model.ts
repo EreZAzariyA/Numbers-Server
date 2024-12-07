@@ -1,4 +1,4 @@
-import { AccountInfoType, AccountSavesType, CardBlockType, CreditCardProvidersType, MainLoansType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { AccountInfoType, AccountSavesType, CardBlockType, CardsPastOrFutureDebitType, MainLoansType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
 const AccountInfoScheme = new Schema<AccountInfoType>({
@@ -38,6 +38,13 @@ const CreditCardsScheme = new Schema<CardBlockType>({
   USDTotalDebit: Number,
   EURTotalDebit: Number,
 });
+
+const CardsPastOrFutureDebitsScheme = new Schema<CardsPastOrFutureDebitType>({
+  accountCreditFramework: Number,
+  accountFrameworkNotUsed: Number,
+  accountFrameworkUsed: Number,
+  cardsBlock: [CreditCardsScheme]
+}, { _id: false });
 
 const AccountSavesScheme = new Schema<AccountSavesType>({
   businessDate: String,
@@ -94,7 +101,8 @@ export interface IAccountModal extends Document {
   lastConnection: number;
   extraInfo: Partial<AccountInfoType>;
   pastOrFutureDebits: PastOrFutureDebitType[];
-  creditCards: CardBlockType[] | CreditCardProvidersType[];
+  creditCards: CardBlockType[];
+  cardsPastOrFutureDebit: CardsPastOrFutureDebitType;
   savings: AccountSavesType;
   loans: MainLoansType;
   createdAt: Date;
@@ -127,6 +135,7 @@ export const BankScheme = new Schema<IAccountModal>({
     type: [CreditCardsScheme],
     default: undefined
   },
+  cardsPastOrFutureDebit: CardsPastOrFutureDebitsScheme,
   loans: LoanScheme
 });
 
