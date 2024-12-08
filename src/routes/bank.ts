@@ -6,7 +6,7 @@ const router = express.Router();
 router.get('/fetch-all-banks-accounts/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const banks = await bankLogic.fetchBanksAccounts(user_id);
+    const banks = await bankLogic.fetchMainAccount(user_id);
     return res.status(200).json(banks);
   } catch (err: any) {
     next(err);
@@ -60,8 +60,8 @@ router.put('/refresh-bank-data/:user_id', async (req: Request, res: Response, ne
 router.put('/update-bank-details/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const { bankName, newCredentials } = req.body;
-    const response = await bankLogic.updateBankAccountDetails(bankName, user_id, newCredentials);
+    const { bank_id, newCredentials } = req.body;
+    const response = await bankLogic.updateBankAccountDetails(bank_id, user_id, newCredentials);
     res.status(200).json(response);
   } catch (err: any) {
     next(err);

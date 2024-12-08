@@ -1,13 +1,13 @@
 import { model, Schema } from "mongoose";
-import { BankScheme, IAccountModal } from "../models/bank-model";
+import { BankScheme, IBankModal } from "../models/bank-model";
 
-export interface IBanksModal extends Document {
+export interface IAccountModel extends Document {
   _id: Schema.Types.ObjectId;
   user_id: Schema.Types.ObjectId;
-  banks: IAccountModal[];
+  banks: IBankModal[];
 };
 
-const BanksSchema = new Schema<IBanksModal>({
+const BanksSchema = new Schema<IAccountModel>({
   user_id: {
     type: Schema.Types.ObjectId,
     required: [true, "User id is missing"],
@@ -23,4 +23,4 @@ const BanksSchema = new Schema<IBanksModal>({
   timestamps: true
 });
 
-export const Banks = model<IBanksModal>('Banks', BanksSchema, 'banks');
+export const Accounts = model<IAccountModel>('Accounts', BanksSchema, 'banks');

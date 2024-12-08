@@ -7,13 +7,13 @@ import jwt from "../utils/jwt";
 import categoriesLogic from "./categories";
 import { ITransactionModel, Transactions } from "../collections/Transactions";
 import transactionsLogic from "./transactions";
-import { IBanksModal, Banks } from "../collections/Banks";
-import { IAccountModal } from "../models/bank-model";
+import { IBankModal } from "../models/bank-model";
 import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
 import { ICategoryModel } from "../models/category-model";
+import { Accounts, IAccountModel } from "../collections/Banks";
 
 interface RefreshedBankAccountDetails {
-  bank: IAccountModal;
+  bank: IBankModal;
   account: TransactionsAccount;
   importedTransactions?: ITransactionModel[];
   importedCategories?: ICategoryModel[];
@@ -29,13 +29,13 @@ export interface UserBankCredentialModel {
 };
 
 class BankLogic {
-  fetchBanksAccounts = async (user_id: string, query = {}): Promise<IBanksModal | null> => {
-    return Banks.findOne({ user_id, ...query }).exec();
+  fetchMainAccount = async (user_id: string, query = {}): Promise<IAccountModel | null> => {
+    return Accounts.findOne({ user_id, ...query }).exec();
   };
 
-  fetchOneBankAccount = async (user_id: string, bank_id: string): Promise<IAccountModal> => {
-    const banksAccount = await this.fetchBanksAccounts(user_id);
-    return banksAccount?.banks?.find((bank) => bank._id?.toString() === bank_id);
+  fetchOneBankAccount = async (user_id: string, bank_id: string, account?: IAccountModel): Promise<IBankModal> => {
+    const mainAccount = account || await this.fetchMainAccount(user_id);
+    return mainAccount?.banks?.find((bank) => bank._id?.toString() === bank_id);
   };
 
   fetchBankData = async (
@@ -59,6 +59,8 @@ class BankLogic {
 
     try {
       const account = scrapeResult.accounts[0];
+      console.log({ 'fetch-card': account.creditCards });
+
       const bank = await insertBankAccount(user_id, details, account);
 
       return {
@@ -107,6 +109,8 @@ class BankLogic {
 
     const account = scrapeResult.accounts[0];
     let insertedTransactions = [];
+    console.log({ cards: account.creditCards });
+
 
     if (account?.txns && isArrayAndNotEmpty(account.txns)) {
       try {
@@ -151,22 +155,19 @@ class BankLogic {
     }
 
     const credentials = bankAccount?.credentials;
-    if (!credentials) {
-      throw new ClientError(500, ErrorMessages.CREDENTIALS_SAVED_NOT_LOADED);
-    }
+    if (credentials) {
+      const decodedCredentials = await jwt.fetchBankCredentialsFromToken(credentials);
+      if (!decodedCredentials) {
+        throw new ClientError(500, ErrorMessages.DECODED_CREDENTIALS_NOT_LOADED);
+      }
 
-    const decodedCredentials = await jwt.fetchBankCredentialsFromToken(credentials);
-    if (!decodedCredentials) {
-      throw new ClientError(500, ErrorMessages.DECODED_CREDENTIALS_NOT_LOADED);
+      const oldCredentials = [];
+      oldCredentials.push(decodedCredentials);
     }
-
-    const oldCredentials = [];
-    oldCredentials.push(decodedCredentials);
 
     const newDetailsCredentials = jwt.createNewToken(newDetails);
-
-    const res = await this.refreshBankData(bank_id, user_id, newDetailsCredentials);
-    return res;
+    const refreshedBankData = await this.refreshBankData(bank_id, user_id, newDetailsCredentials);
+    return refreshedBankData;
   };
 
   importTransactions = async (
@@ -293,7 +294,7 @@ class BankLogic {
 
   setMainBankAccount = async (user_id: string, bank_id: string): Promise<void> => {
     try {
-      const bankAccount = await this.fetchBanksAccounts(user_id, { 'banks._id': bank_id });
+      const bankAccount = await this.fetchMainAccount(user_id, { 'banks._id': bank_id });
       const banks = bankAccount.banks.map((bank) => {
         if (bank._id.toString() === bank_id.toString()) {
           bank.isMainAccount = true;
@@ -302,7 +303,7 @@ class BankLogic {
         }
         return bank;
       });
-      await Banks.findOneAndUpdate(
+      await Accounts.findOneAndUpdate(
         { user_id: bankAccount.user_id },
         { $set: { banks } }
       ).exec();

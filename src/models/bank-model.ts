@@ -89,7 +89,7 @@ const LoanScheme = new Schema<MainLoansType>({
   }]
 }, { _id: false });
 
-export interface IAccountModal extends Document {
+export interface IBankModal extends Document {
   bankName: string;
   credentials: string;
   isMainAccount: boolean;
@@ -109,7 +109,7 @@ export interface IAccountModal extends Document {
   updatedAt: Date;
 };
 
-export const BankScheme = new Schema<IAccountModal>({
+export const BankScheme = new Schema<IBankModal>({
   bankName: {
     type: String,
     required: [true, "Bank name is missing"],
@@ -127,16 +127,10 @@ export const BankScheme = new Schema<IAccountModal>({
   },
   extraInfo: AccountInfoScheme,
   savings: AccountSavesScheme,
-  pastOrFutureDebits: {
-    type: [PastOrFutureDebitsScheme],
-    default: undefined
-  },
-  creditCards: {
-    type: [CreditCardsScheme],
-    default: undefined
-  },
+  pastOrFutureDebits: [PastOrFutureDebitsScheme],
+  creditCards: [CreditCardsScheme],
   cardsPastOrFutureDebit: CardsPastOrFutureDebitsScheme,
   loans: LoanScheme
 });
 
-export const AccountModel = model<IAccountModal>('Bank', BankScheme);
+export const BankModel = model<IBankModal>('Bank', BankScheme);

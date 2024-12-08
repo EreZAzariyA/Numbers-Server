@@ -5,8 +5,8 @@ import ClientError from "../models/client-error";
 import { ErrorMessages } from "./helpers";
 import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "./jwt";
-import { Banks } from "../collections/Banks";
-import { AccountModel, IAccountModal } from "../models/bank-model";
+import { BankModel, IBankModal } from "../models/bank-model";
+import { Accounts } from "../collections/Banks";
 
 export const SupportedCompanies = {
   [CompanyTypes.discount]: CompanyTypes.discount,
@@ -79,8 +79,8 @@ export const insertBankAccount = async (
   user_id: string,
   details: UserBankCredentialModel,
   account: TransactionsAccount
-): Promise<IAccountModal> => {
-  const banksAccount = await bankLogic.fetchBanksAccounts(user_id);
+): Promise<IBankModal> => {
+  const banksAccount = await bankLogic.fetchMainAccount(user_id);
   const currBankAccount = banksAccount?.banks?.find((b) => {
     return b.bankName.toLowerCase() === details.companyId.toLowerCase();
   });
@@ -91,7 +91,7 @@ export const insertBankAccount = async (
 
   try {
     const newBank = await createBank(details.companyId, details, account);
-    await Banks.findOneAndUpdate(
+    await Accounts.findOneAndUpdate(
       { user_id: user_id },
       { $push: { banks: newBank } },
       { new: true, upsert: true }
@@ -104,15 +104,15 @@ export const insertBankAccount = async (
 };
 
 const updateBank = async (
-  currBankAccount: IAccountModal,
+  currBankAccount: IBankModal,
   user_id: string,
   account: TransactionsAccount,
   details: UserBankCredentialModel
-): Promise<IAccountModal> => {
+): Promise<IBankModal> => {
   const query = createUpdateQuery(account, details);
   const options = {
     user_id: user_id,
-    'banks.bankName': details.companyId
+    'banks._id': currBankAccount._id
   };
   const projection = {
     new: true,
@@ -120,7 +120,7 @@ const updateBank = async (
   };
 
   try {
-    const bankAccounts = await Banks.findOneAndUpdate(options, query, projection).exec();
+    const bankAccounts = await Accounts.findOneAndUpdate(options, query, projection).exec();
     return bankAccounts.banks.find((b) => b._id === currBankAccount._id);
   } catch (error: any) {
     console.log(error);
@@ -132,10 +132,10 @@ export const createBank = async (
   bankName: string,
   credentialsDetails: UserBankCredentialModel,
   account: TransactionsAccount
-): Promise<IAccountModal> => {
+): Promise<IBankModal> => {
   const isCardProvider = isCardProviderCompany(credentialsDetails.companyId);
 
-  const bankAccount = new AccountModel({
+  const bankAccount = new BankModel({
     bankName,
     isCardProvider,
     lastConnection: new Date().valueOf(),
@@ -171,6 +171,7 @@ export const createUpdateQuery = (
       balance: account?.balance
     },
     'banks.$.extraInfo': account?.info,
+    'banks.$.creditCards': account?.creditCards,
     'banks.$.pastOrFutureDebits': account?.pastOrFutureDebits,
     'banks.$.cardsPastOrFutureDebit': account?.cardsPastOrFutureDebit,
     'banks.$.savings': account?.saving,
