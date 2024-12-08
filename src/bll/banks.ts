@@ -54,13 +54,11 @@ class BankLogic {
     const scrapeResult = await getBankData(details);
     if (scrapeResult.errorType || scrapeResult.errorMessage) {
       console.error(`Scraper error on 'BankLogic/fetchBankData': ${scrapeResult.errorMessage}.`);
-      throw new ClientError(500, ErrorMessages.INCORRECT_LOGIN_ATTEMPT);
+      throw new ClientError(500, ErrorMessages.SOME_ERROR_TRY_AGAIN);
     }
 
     try {
       const account = scrapeResult.accounts[0];
-      console.log({ 'fetch-card': account.creditCards });
-
       const bank = await insertBankAccount(user_id, details, account);
 
       return {
@@ -109,8 +107,6 @@ class BankLogic {
 
     const account = scrapeResult.accounts[0];
     let insertedTransactions = [];
-    console.log({ cards: account.creditCards });
-
 
     if (account?.txns && isArrayAndNotEmpty(account.txns)) {
       try {
@@ -118,6 +114,17 @@ class BankLogic {
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
+    }
+    if (account?.cardsPastOrFutureDebit && isArrayAndNotEmpty(account.cardsPastOrFutureDebit.cardsBlock)) {
+      account.cardsPastOrFutureDebit.cardsBlock.forEach(async (card) => {
+        if (isArrayAndNotEmpty(card.txns)) {
+          try {
+            insertedTransactions = await this.importTransactions(card.txns, user_id, details.companyId);
+          } catch (error: any) {
+            throw new ClientError(500, error?.message || error);
+          }
+        }
+      });
     }
 
     if (account?.pastOrFutureDebits && isArrayAndNotEmpty(account?.pastOrFutureDebits)) {
@@ -174,7 +181,7 @@ class BankLogic {
     transactions: Transaction[],
     user_id: string,
     companyId: string,
-  ): Promise<ITransactionModel[] | ICardTransactionModel[]> => {
+  ): Promise<(ITransactionModel | ICardTransactionModel)[]> => {
     let defCategory = await categoriesLogic.fetchUserCategory(user_id, 'Others');
     if (!defCategory) {
       try {
@@ -187,6 +194,7 @@ class BankLogic {
     const isCardTransactions = isCardProviderCompany(companyId);
     const transactionsToInsert: ITransactionModel[] = [];
     const cardsTransactionsToInsert: ICardTransactionModel[] = [];
+    let inserted: (ITransactionModel | ICardTransactionModel)[] = [];
 
     for (const originalTransaction of transactions) {
       const {
@@ -200,11 +208,13 @@ class BankLogic {
         cardNumber: transCardNumber,
       } = originalTransaction;
 
-      const existedTransaction = await transactionsLogic.fetchUserBankTransaction(originalTransaction, companyId);
+      const existedTransaction = await transactionsLogic
+        .fetchUserBankTransaction(originalTransaction, companyId, user_id);
       if (existedTransaction) {
         if (existedTransaction.status?.toLowerCase() !== originalTransaction.status?.toLowerCase()) {
           try {
-            await transactionsLogic.updateTransactionStatus(existedTransaction, status);
+            const trans = await transactionsLogic.updateTransactionStatus(existedTransaction, status);
+            inserted.push(trans);
           } catch (err: any) {
             console.log(`Some error while trying to update transaction ${existedTransaction.identifier} - ${err?.message}`);
             throw new ClientError(500, `Some error while trying to update transaction ${existedTransaction.identifier}`);
@@ -254,18 +264,19 @@ class BankLogic {
       }
     }
 
-    let inserted: ITransactionModel[] | ICardTransactionModel[] = [];
     try {
       if (isCardTransactions) {
-        inserted = await CardTransactions.insertMany(cardsTransactionsToInsert, {
+        const insertedCardsTrans = await CardTransactions.insertMany(cardsTransactionsToInsert, {
           ordered: false,
           throwOnValidationError: false,
         });
+        inserted = [...inserted, ...insertedCardsTrans]
       } else {
-        inserted = await Transactions.insertMany(transactionsToInsert,
-          { ordered: false,
-            throwOnValidationError: false,
-          });
+        const insertedTrans = await Transactions.insertMany(transactionsToInsert, {
+          ordered: false,
+          throwOnValidationError: false,
+        });
+        inserted = [...inserted, ...insertedTrans]
       }
 
       return inserted;

@@ -31,14 +31,15 @@ class TransactionsLogic {
 
   fetchUserBankTransaction = async (
     transaction: Transaction,
-    companyId: string
+    companyId: string,
+    user_id: string
   ): Promise<ITransactionModel | ICardTransactionModel> => {
     const isCardTransaction = isCardProviderCompany(companyId);
     let trans: ITransactionModel | ICardTransactionModel = null;
     const query: object = {
-      ...(transaction?.identifier ?
-        { identifier: transaction.identifier } :
-        {
+      ...(transaction?.identifier ? {
+          identifier: transaction.identifier
+        } : {
           description: transaction.description,
           date: transaction.date,
           amount: transaction.chargedAmount,
@@ -47,9 +48,9 @@ class TransactionsLogic {
     };
 
     if (isCardTransaction) {
-      trans = await CardTransactions.findOne(query).exec();
+      trans = await CardTransactions.findOne({ user_id, ...query }).exec();
     } else {
-      trans = await Transactions.findOne(query).exec();
+      trans = await Transactions.findOne({ user_id, ...query }).exec();
     }
 
     return trans;

@@ -22,8 +22,10 @@ const PastOrFutureDebitsScheme = new Schema<PastOrFutureDebitType>({
 }, { _id: false });
 
 const CreditCardsScheme = new Schema<CardBlockType>({
-  cardHolderFirstName: String,
-  cardHolderLastName: String,
+  firstName: String,
+  lastName: String,
+  cardUniqueId: String,
+  last4Digits: String,
   cardName: String,
   cardNumber: String,
   cardFramework: Number,
@@ -101,7 +103,6 @@ export interface IBankModal extends Document {
   lastConnection: number;
   extraInfo: Partial<AccountInfoType>;
   pastOrFutureDebits: PastOrFutureDebitType[];
-  creditCards: CardBlockType[];
   cardsPastOrFutureDebit: CardsPastOrFutureDebitType;
   savings: AccountSavesType;
   loans: MainLoansType;
@@ -118,8 +119,14 @@ export const BankScheme = new Schema<IBankModal>({
   isMainAccount: Boolean,
   isCardProvider: Boolean,
   details: {
-    accountNumber: { type: Number, required: false },
-    balance: { type: Number, required: false }
+    accountNumber: {
+      type: Number,
+      default: undefined
+    },
+    balance: {
+      type: Number,
+      default: undefined
+    }
   },
   lastConnection: {
     type: Number,
@@ -128,7 +135,6 @@ export const BankScheme = new Schema<IBankModal>({
   extraInfo: AccountInfoScheme,
   savings: AccountSavesScheme,
   pastOrFutureDebits: [PastOrFutureDebitsScheme],
-  creditCards: [CreditCardsScheme],
   cardsPastOrFutureDebit: CardsPastOrFutureDebitsScheme,
   loans: LoanScheme
 });

@@ -139,23 +139,19 @@ export const createBank = async (
     bankName,
     isCardProvider,
     lastConnection: new Date().valueOf(),
+    details: {
+      accountNumber: account.accountNumber,
+      balance: account.balance,
+    },
+    creditCards: account.cardsPastOrFutureDebit?.cardsBlock,
+    cardsPastOrFutureDebit: account.cardsPastOrFutureDebit,
+    extraInfo: account.info,
+    pastOrFutureDebits: account?.pastOrFutureDebits,
+    savings: account?.saving,
+    loans: account?.loans,
     ...(credentialsDetails?.save && {
       credentials: jwt.createNewToken(credentialsDetails),
     }),
-    ...(isCardProvider ? {
-      creditCards: account.creditCards
-    } : {
-      details: {
-        accountNumber: account.accountNumber,
-        balance: account.balance,
-      },
-      creditCards: account.cardsPastOrFutureDebit?.cardsBlock,
-      cardsPastOrFutureDebit: account.cardsPastOrFutureDebit,
-      extraInfo: account.info,
-      pastOrFutureDebits: account?.pastOrFutureDebits,
-      savings: account?.saving,
-      loans: account?.loans
-    })
   });
 
   return bankAccount;
@@ -168,10 +164,10 @@ export const createUpdateQuery = (
   $set: {
     'banks.$.lastConnection': new Date().valueOf(),
     'banks.$.details': {
-      balance: account?.balance
+      balance: account?.balance,
     },
     'banks.$.extraInfo': account?.info,
-    'banks.$.creditCards': account?.creditCards,
+    'banks.$.creditCards': account?.cardsPastOrFutureDebit.cardsBlock,
     'banks.$.pastOrFutureDebits': account?.pastOrFutureDebits,
     'banks.$.cardsPastOrFutureDebit': account?.cardsPastOrFutureDebit,
     'banks.$.savings': account?.saving,

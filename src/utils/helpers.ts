@@ -1,3 +1,4 @@
+import moment from "moment";
 import { IUserModel } from "../models/user-model";
 
 export const MAX_LOGIN_ATTEMPTS = 5;
@@ -5,6 +6,7 @@ export const MAX_LOGIN_ATTEMPTS = 5;
 export enum ErrorMessages {
   NAME_IN_USE = "Name is already in use.",
   SOME_ERROR = "Some error, please contact us.",
+  SOME_ERROR_TRY_AGAIN = "Some error, please try again later.",
   INCORRECT_LOGIN_ATTEMPT = "Incorrect ID or Password.",
   BANK_ACCOUNT_NOT_FOUND = "We did not found any bank account related to this ID",
   MAX_LOGIN_ATTEMPTS = "You have pass the maximum login attempts. Please try again more 24 hours..",
@@ -31,8 +33,11 @@ export const isArrayAndNotEmpty = (arr: any[]): boolean => {
   return isArray(arr) && arr.length > 0;
 };
 
-export const getFutureDebitDate = (dateString: string): number => {
-  const month = parseInt(dateString?.substring(0, 2)) - 1 || 0;
-  const year = parseInt(dateString?.substring(2)) || 0;
-  return new Date(year, month, 1).valueOf() || 0;
+export const getFutureDebitDate = (dateString: string | number): number => {
+  if (typeof dateString === 'string') {
+    const month = parseInt(dateString?.substring(0, 2)) - 1 || 0;
+    const year = parseInt(dateString?.substring(2)) || 0;
+    return new Date(year, month, 1).valueOf() || 0;
+  }
+  return moment(dateString).valueOf()
 };
