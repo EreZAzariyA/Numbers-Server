@@ -2,7 +2,7 @@ import { CategoryModel, ICategoryModel } from "../models/category-model";
 import ClientError from "../models/client-error";
 import { ErrorMessages } from "../utils/helpers";
 import { Categories, ICategories } from "../collections/Categories";
-import { ObjectId } from "mongoose";
+import { Types } from "mongoose";
 
 export const getAmountToUpdate = (amount: number) => {
   let newAmount = 0;
@@ -82,8 +82,8 @@ class CategoriesLogic {
   };
 
   async updateCategorySpentAmount (
-    user_id: string | ObjectId,
-    category_id: ObjectId,
+    user_id: Types.ObjectId,
+    category_id: Types.ObjectId,
     amount: number,
     newAmount?: number
   ) {

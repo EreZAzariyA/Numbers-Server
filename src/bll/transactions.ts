@@ -128,11 +128,16 @@ class TransactionsLogic {
     transaction: ITransactionModel | ICardTransactionModel,
     status: string
   ): Promise<ITransactionModel | ICardTransactionModel> => {
-    return await Transactions.findByIdAndUpdate(
-      transaction._id,
-      { $set: { status } },
-      { new: true }
-    ).exec();
+    const isCardProvider = isCardProviderCompany(transaction.companyId);
+    const query = {
+      _id: transaction._id,
+      query: { $set: { status } },
+      projection: { new: true }
+    };
+    if (isCardProvider) {
+      return await CardTransactions.findByIdAndUpdate(query).exec();
+    }
+    return await Transactions.findByIdAndUpdate(query).exec();
   };
 
   removeTransaction = async (transaction_id: string): Promise<void> => {

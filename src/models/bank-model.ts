@@ -1,4 +1,4 @@
-import { AccountInfoType, AccountSavesType, CardBlockType, CardsPastOrFutureDebitType, MainLoansType, PastOrFutureDebitType } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { AccountInfoType, AccountSavesType, CardBlockType, CardsPastOrFutureDebitType, MainLoansType, PastOrFutureDebitType, SecuritiesType, Transaction } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
 const AccountInfoScheme = new Schema<AccountInfoType>({
@@ -100,12 +100,14 @@ export interface IBankModal extends Document {
     accountNumber: string;
     balance: number;
   };
+  txns?: Transaction[];
   lastConnection: number;
   extraInfo: Partial<AccountInfoType>;
   pastOrFutureDebits: PastOrFutureDebitType[];
   cardsPastOrFutureDebit: CardsPastOrFutureDebitType;
   savings: AccountSavesType;
   loans: MainLoansType;
+  securities?: SecuritiesType;
   createdAt: Date;
   updatedAt: Date;
 };

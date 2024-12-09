@@ -13,8 +13,8 @@ import { ICategoryModel } from "../models/category-model";
 import { Accounts, IAccountModel } from "../collections/Banks";
 
 interface RefreshedBankAccountDetails {
-  bank: IBankModal;
-  account: TransactionsAccount;
+  bank: IBankModal; // full inserted bank - no account.txns or cardsBlock.txns
+  account: TransactionsAccount; // scrapper account - account.txns + cardsBlock.txns
   importedTransactions?: ITransactionModel[];
   importedCategories?: ICategoryModel[];
 };
@@ -33,8 +33,8 @@ class BankLogic {
     return Accounts.findOne({ user_id, ...query }).exec();
   };
 
-  fetchOneBankAccount = async (user_id: string, bank_id: string, account?: IAccountModel): Promise<IBankModal> => {
-    const mainAccount = account || await this.fetchMainAccount(user_id);
+  fetchOneBankAccount = async (user_id: string, bank_id: string): Promise<IBankModal> => {
+    const mainAccount = await this.fetchMainAccount(user_id);
     return mainAccount?.banks?.find((bank) => bank._id?.toString() === bank_id);
   };
 
@@ -60,7 +60,6 @@ class BankLogic {
     try {
       const account = scrapeResult.accounts[0];
       const bank = await insertBankAccount(user_id, details, account);
-
       return {
         account,
         bank
@@ -110,21 +109,26 @@ class BankLogic {
 
     if (account?.txns && isArrayAndNotEmpty(account.txns)) {
       try {
-        insertedTransactions = await this.importTransactions(account.txns, user_id, details.companyId);
+        const transactions = await this.importTransactions(account.txns, user_id, details.companyId);
+        insertedTransactions = [...insertedTransactions, ...transactions];
       } catch (err: any) {
         throw new ClientError(500, err.message);
       }
     }
-    if (account?.cardsPastOrFutureDebit && isArrayAndNotEmpty(account.cardsPastOrFutureDebit.cardsBlock)) {
-      account.cardsPastOrFutureDebit.cardsBlock.forEach(async (card) => {
-        if (isArrayAndNotEmpty(card.txns)) {
-          try {
-            insertedTransactions = await this.importTransactions(card.txns, user_id, details.companyId);
-          } catch (error: any) {
-            throw new ClientError(500, error?.message || error);
-          }
+
+    if (account?.cardsPastOrFutureDebit && isArrayAndNotEmpty(account.cardsPastOrFutureDebit?.cardsBlock)) {
+      const promises = account.cardsPastOrFutureDebit.cardsBlock
+      .filter((card) => isArrayAndNotEmpty(card.txns))
+      .map(async (card) => {
+        try {
+          const cardTransactions = await this.importTransactions(card.txns, user_id, details.companyId);
+          insertedTransactions = [...insertedTransactions, ...cardTransactions];
+        } catch (error) {
+          throw new ClientError(500, error?.message || error);
         }
       });
+
+      await Promise.all(promises);
     }
 
     if (account?.pastOrFutureDebits && isArrayAndNotEmpty(account?.pastOrFutureDebits)) {
@@ -142,13 +146,12 @@ class BankLogic {
     }
 
     try {
-      await insertBankAccount(user_id, details, account);
-      const bank = await bankLogic.fetchOneBankAccount(user_id, bank_id);
-
+      const bank = await insertBankAccount(user_id, details, account);
       return {
-        bank,
         account,
+        bank,
         importedTransactions: insertedTransactions,
+        // todo: add importedCategories
       };
     } catch (err: any) {
       throw new ClientError(500, err.message);
@@ -235,32 +238,22 @@ class BankLogic {
 
       const identifier = originalTransaction.identifier ?? undefined;
 
-      let transaction: ITransactionModel | ICardTransactionModel = null;
+      const transaction = {
+        user_id,
+        date,
+        identifier: identifier,
+        description,
+        companyId,
+        status,
+        amount: originalAmount || chargedAmount,
+        category_id: originalTransactionCategory._id
+      };
       if (isCardTransactions) {
-        transaction = new CardTransactions({
-          user_id,
-          cardNumber: transCardNumber,
-          date,
-          identifier,
-          description,
-          companyId,
-          status,
-          amount: originalAmount || chargedAmount,
-          category_id: originalTransactionCategory._id,
-        });
-        cardsTransactionsToInsert.push(transaction);
+        const transToInsert = new CardTransactions({ ...transaction, cardNumber: transCardNumber });
+        cardsTransactionsToInsert.push(transToInsert);
       } else {
-        transaction = new Transactions({
-          user_id,
-          date,
-          identifier,
-          description,
-          companyId,
-          status,
-          amount: originalAmount || chargedAmount,
-          category_id: originalTransactionCategory._id
-        });
-        transactionsToInsert.push(transaction);
+        const transToInsert = new Transactions(transaction);
+        transactionsToInsert.push(transToInsert);
       }
     }
 
@@ -270,13 +263,13 @@ class BankLogic {
           ordered: false,
           throwOnValidationError: false,
         });
-        inserted = [...inserted, ...insertedCardsTrans]
+        inserted = [...inserted, ...insertedCardsTrans];
       } else {
         const insertedTrans = await Transactions.insertMany(transactionsToInsert, {
           ordered: false,
           throwOnValidationError: false,
         });
-        inserted = [...inserted, ...insertedTrans]
+        inserted = [...inserted, ...insertedTrans];
       }
 
       return inserted;
