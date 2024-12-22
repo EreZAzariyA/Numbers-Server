@@ -10,17 +10,17 @@ class TransactionsLogic {
     user_id: string,
     type: string,
     query: any,
-  ): Promise<{ transactions: ITransactionModel[] | ICardTransactionModel[], total: number }> => {
+  ): Promise<{ transactions: (ITransactionModel | ICardTransactionModel)[], total: number }> => {
     const { query: filter, projection, options } = query;
-    let transactions: ITransactionModel[] | ICardTransactionModel[] = [];
+    let transactions = [];
     let total: number = 0;
 
     if (type === 'card') {
       total = await CardTransactions.countDocuments({ user_id, ...filter });
-      transactions = await CardTransactions.find({ user_id, ...filter }, projection, { ...options, sort: { 'date': -1 } })
+      transactions = await CardTransactions.find({ user_id, ...filter }, projection, { ...options, sort: { 'date': -1 } });
     } else {
       total = await Transactions.countDocuments({ user_id, ...filter });
-      transactions = await Transactions.find({ user_id, ...filter }, projection, { ...options, sort: { 'date': -1 } })
+      transactions = await Transactions.find({ user_id, ...filter }, projection, { ...options, sort: { 'date': -1 } });
     }
 
     return {

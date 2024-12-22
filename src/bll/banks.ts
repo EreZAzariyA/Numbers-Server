@@ -74,7 +74,7 @@ class BankLogic {
   bank_id: string,
   user_id: string,
   newDetailsCredentials?: string
-  ): Promise<RefreshedBankAccountDetails> => {
+  ): Promise<Partial<RefreshedBankAccountDetails>> => {
     const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bank_id);
     if (!bankAccount) {
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
@@ -148,7 +148,6 @@ class BankLogic {
     try {
       const bank = await insertBankAccount(user_id, details, account);
       return {
-        account,
         bank,
         importedTransactions: insertedTransactions,
         // todo: add importedCategories

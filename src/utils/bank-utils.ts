@@ -121,7 +121,7 @@ const updateBank = async (
 
   try {
     const bankAccounts = await Accounts.findOneAndUpdate(options, query, projection).exec();
-    return bankAccounts.banks.find((b) => b._id === currBankAccount._id);
+    return bankAccounts.banks.find((b) => b._id?.toString() === currBankAccount._id?.toString());
   } catch (error: any) {
     console.log(error);
     return;

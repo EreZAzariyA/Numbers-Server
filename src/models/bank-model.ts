@@ -36,6 +36,7 @@ const CreditCardsScheme = new Schema<CardBlockType>({
   cardFamilyDescription: String,
   cardValidityDate: String,
   dateOfUpcomingDebit: String,
+  cardImage: String,
   NISTotalDebit: Number,
   USDTotalDebit: Number,
   EURTotalDebit: Number,
