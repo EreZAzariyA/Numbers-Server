@@ -8,19 +8,20 @@ import { isCardProviderCompany } from "../utils/bank-utils";
 class TransactionsLogic {
   fetchUserTransactions = async (
     user_id: string,
-    type: string,
-    query: any,
+    params: any,
+    type?: string,
   ): Promise<{ transactions: (ITransactionModel | ICardTransactionModel)[], total: number }> => {
-    const { query: filter, projection, options } = query;
+    const { query, projection, options } = params;
+
     let transactions = [];
     let total: number = 0;
 
-    if (type === 'card') {
-      total = await CardTransactions.countDocuments({ user_id, ...filter });
-      transactions = await CardTransactions.find({ user_id, ...filter }, projection, { ...options, sort: { 'date': -1 } });
+    if (type && type === 'creditcards') {
+      total = await CardTransactions.countDocuments({ user_id, ...query });
+      transactions = await CardTransactions.find({ user_id, ...query }, projection, { ...options, sort: { 'date': -1 } });
     } else {
-      total = await Transactions.countDocuments({ user_id, ...filter });
-      transactions = await Transactions.find({ user_id, ...filter }, projection, { ...options, sort: { 'date': -1 } });
+      total = await Transactions.countDocuments({ user_id, ...query });
+      transactions = await Transactions.find({ user_id, ...query }, projection, { ...options, sort: { 'date': -1 } });
     }
 
     return {
