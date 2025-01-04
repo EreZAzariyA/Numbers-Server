@@ -2,27 +2,25 @@ import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/l
 import ClientError from "../models/client-error";
 import { ITransactionModel, Transactions } from "../collections/Transactions";
 import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
-import categoriesLogic, { getAmountToUpdate } from "./categories";
 import { isCardProviderCompany } from "../utils/bank-utils";
+import { Model } from "mongoose";
+
+type MainTransactionType = ITransactionModel | ICardTransactionModel;
 
 class TransactionsLogic {
   fetchUserTransactions = async (
     user_id: string,
     params: any,
     type?: string,
-  ): Promise<{ transactions: (ITransactionModel | ICardTransactionModel)[], total: number }> => {
+  ): Promise<{ transactions: (MainTransactionType)[], total: number }> => {
     const { query, projection, options } = params;
+    const collection: Model<MainTransactionType> = type === 'creditCards' ? CardTransactions : Transactions;
 
     let transactions = [];
     let total: number = 0;
 
-    if (type && type === 'creditcards') {
-      total = await CardTransactions.countDocuments({ user_id, ...query });
-      transactions = await CardTransactions.find({ user_id, ...query }, projection, { ...options, sort: { 'date': -1 } });
-    } else {
-      total = await Transactions.countDocuments({ user_id, ...query });
-      transactions = await Transactions.find({ user_id, ...query }, projection, { ...options, sort: { 'date': -1 } });
-    }
+      total = await collection.countDocuments({ user_id, ...query });
+      transactions = await collection.find({ user_id, ...query }, projection, { ...options, sort: { 'date': -1 } });
 
     return {
       transactions,
@@ -34,43 +32,45 @@ class TransactionsLogic {
     transaction: Transaction,
     companyId: string,
     user_id: string
-  ): Promise<ITransactionModel | ICardTransactionModel> => {
+  ): Promise<MainTransactionType> => {
     const isCardTransaction = isCardProviderCompany(companyId);
-    let trans: ITransactionModel | ICardTransactionModel = null;
+    let trans: MainTransactionType = null;
     const query: object = {
-      ...(transaction?.identifier ? {
+      ...(transaction?.identifier && {
           identifier: transaction.identifier
-        } : {
-          description: transaction.description,
-          date: transaction.date,
-          amount: transaction.chargedAmount,
-        }
-      )
+        }),
+        ...(transaction.memo && {
+          memo: transaction.memo
+        }),
+        description: transaction.description,
+        date: transaction.date,
+        amount: transaction.chargedAmount
     };
 
+    let collection: any = Transactions;
     if (isCardTransaction) {
-      trans = await CardTransactions.findOne({ user_id, ...query }).exec();
-    } else {
-      trans = await Transactions.findOne({ user_id, ...query }).exec();
+      collection = CardTransactions;
     }
 
+    trans = await collection.findOne({ user_id, ...query }).exec();
     return trans;
   };
 
   newTransaction = async (
     user_id: string,
-    transaction: ITransactionModel | ICardTransactionModel
-  ): Promise<ITransactionModel | ICardTransactionModel> => {
+    transaction: MainTransactionType,
+    type?: string
+  ): Promise<MainTransactionType> => {
     if (!user_id) {
       throw new ClientError(500, 'User id is missing');
     }
-
-    const isCardTransaction = isCardProviderCompany(transaction.companyId);
-    let newTransaction: ITransactionModel | ICardTransactionModel = null;
+    const isCardTransaction = isCardProviderCompany(transaction.companyId) || type !== 'transactions';
+    let newTransaction: MainTransactionType = null;
 
     if (isCardTransaction) {
       newTransaction = new CardTransactions({
         user_id,
+        cardNumber: transaction?.cardNumber || null,
         ...transaction
       });
     } else {
@@ -88,34 +88,25 @@ class TransactionsLogic {
     return newTransaction.save();
   };
 
-  updateTransaction = async (transaction: ITransactionModel): Promise<ITransactionModel> => {
-    const currentTransaction = await Transactions.findById(transaction._id).exec();
-    const currentTransactionAmountToDecrement = getAmountToUpdate(currentTransaction.amount);
+  updateTransaction = async (user_id: string, transaction: MainTransactionType, type: string = 'Account'): Promise<MainTransactionType> => {
+    const isCardTransaction = type !== 'transactions';
+    const collection: Model<MainTransactionType> = isCardTransaction ? CardTransactions : Transactions;
 
-    const updatedTransaction = await Transactions.findByIdAndUpdate(transaction._id, {
+    const currentTransaction = await collection.findOne({ user_id, _id: transaction._id }).exec();
+    if (!currentTransaction) {
+      throw new ClientError(400, 'User transaction not found');
+    }
+
+    const updatedTransaction = await collection.findOneAndUpdate({ user_id, _id: transaction._id }, {
       $set: {
+        ...transaction,
         date: transaction.date,
         category_id: transaction.category_id,
         description: transaction.description,
         amount: transaction.amount,
-        status: transaction.status || TransactionStatuses.Completed
+        status: transaction.status || TransactionStatuses.Completed,
       }
     }, { new: true }).exec();
-
-    try {
-      await categoriesLogic.updateCategorySpentAmount(
-        currentTransaction.user_id,
-        currentTransaction.category_id,
-        currentTransactionAmountToDecrement,
-        updatedTransaction.amount,
-      );
-    } catch (err: any) {
-      console.log(err);
-    }
-
-    if (!updatedTransaction) {
-      throw new ClientError(404, 'Transaction not found');
-    }
 
     const errors = updatedTransaction.validateSync();
     if (errors) {
@@ -126,9 +117,9 @@ class TransactionsLogic {
   };
 
   updateTransactionStatus = async (
-    transaction: ITransactionModel | ICardTransactionModel,
+    transaction: MainTransactionType,
     status: string
-  ): Promise<ITransactionModel | ICardTransactionModel> => {
+  ): Promise<MainTransactionType> => {
     const isCardProvider = isCardProviderCompany(transaction.companyId);
     const query = {
       _id: transaction._id,
@@ -141,17 +132,22 @@ class TransactionsLogic {
     return await Transactions.findByIdAndUpdate(query).exec();
   };
 
-  removeTransaction = async (transaction_id: string): Promise<void> => {
-    const transactionToRemove = await Transactions.findById(transaction_id).exec();
-    const amountToUpdate = getAmountToUpdate(transactionToRemove.amount);
+  removeTransaction = async (user_id: string, transaction_id: string, type: string = 'transactions'): Promise<void> => {
+    const isCardTransaction = type !== 'transactions';
+    const query = { user_id, _id: transaction_id };
+    // const transactionToRemove = await Transactions.findById(transaction_id).exec();
+    // const amountToUpdate = getAmountToUpdate(transactionToRemove.amount);
 
     try {
-      await Transactions.findByIdAndDelete(transaction_id).exec();
-      await categoriesLogic.updateCategorySpentAmount(
-        transactionToRemove.user_id,
-        transactionToRemove.category_id,
-        amountToUpdate
-      );
+      if (isCardTransaction) {
+        await CardTransactions.findOneAndDelete(query).exec();
+      }
+      await Transactions.findByIdAndDelete(query).exec();
+      // await categoriesLogic.updateCategorySpentAmount(
+      //   transactionToRemove.user_id,
+      //   transactionToRemove.category_id,
+      //   amountToUpdate
+      // );
     } catch (err: any) {
       console.log(err);
     }

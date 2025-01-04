@@ -22,18 +22,19 @@ router.get("/:user_id", async (req: Request, res: Response, next: NextFunction) 
 router.post("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const transaction = req.body;
-    const addedTransaction = await transactionsLogic.newTransaction(user_id, transaction);
+    const { transaction, type } = req.body;
+    const addedTransaction = await transactionsLogic.newTransaction(user_id, transaction, type);
     res.status(201).json(addedTransaction);
   } catch (err: any) {
     next(err);
   }
 });
 
-router.put("/", async (req: Request, res: Response, next: NextFunction) => {
+router.put("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const transaction = req.body;
-    const updatedTransaction = await transactionsLogic.updateTransaction(transaction);
+    const user_id = req.params.user_id;
+    const { transaction, type } = req.body;
+    const updatedTransaction = await transactionsLogic.updateTransaction(user_id, transaction, type);
     res.status(201).json(updatedTransaction);
   } catch (err: any) {
     next(err);
@@ -42,8 +43,8 @@ router.put("/", async (req: Request, res: Response, next: NextFunction) => {
 
 router.delete("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { transaction_id } = req.body;
-    await transactionsLogic.removeTransaction(transaction_id);
+    const { user_id, transaction_id, type } = req.body;
+    await transactionsLogic.removeTransaction(user_id, transaction_id, type);
     res.sendStatus(200);
   } catch (err: any) {
     next(err);

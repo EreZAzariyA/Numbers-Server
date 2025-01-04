@@ -3,6 +3,7 @@ import ClientError from "../models/client-error";
 import { ErrorMessages } from "../utils/helpers";
 import { Categories, ICategories } from "../collections/Categories";
 import { Types } from "mongoose";
+import { UserModel } from "../models/user-model";
 
 export const getAmountToUpdate = (amount: number) => {
   let newAmount = 0;
@@ -51,12 +52,12 @@ class CategoriesLogic {
   };
 
   async addNewCategory(categoryName: string, user_id: string): Promise<ICategoryModel> {
-    if (!user_id) {
-      console.info(`addNewCategory: Fail to add category: ${categoryName} - ${ErrorMessages.USER_ID_MISSING}`);
-      throw new ClientError(500, ErrorMessages.USER_ID_MISSING);
-    }
+    const user = await UserModel.findById(user_id).catch(() => {
+      console.info(`addNewCategory: Fail to add category: ${categoryName} - ${ErrorMessages.USER_NOT_FOUND}`);
+      throw new ClientError(400, ErrorMessages.USER_NOT_FOUND);
+    });
 
-    const allCategories = await Categories.findOne({ user_id }).exec();
+    const allCategories = await Categories.findOne({ user_id: user._id }).exec();
     if (allCategories) {
       const isExist = allCategories.categories.some((c) => c.name === categoryName);
 
@@ -68,7 +69,7 @@ class CategoriesLogic {
 
     const category = new CategoryModel({ name: categoryName });
     const updatedCategories = await Categories.findOneAndUpdate(
-      { user_id },
+      { user_id: user._id },
       { $push: { categories: category } },
       { new: true, upsert: true }
     ).exec();
@@ -97,15 +98,6 @@ class CategoriesLogic {
         { user_id, 'categories._id': category_id },
         { $inc: { 'categories.$.spent': newAmount } },
         { new: true }
-      ).exec();
-    }
-  };
-
-  async updateManyCategoriesSpentAmount (user_id: string, categoriesSpentObj: object): Promise<void> {
-    for (const [categoryName, spentAmount] of Object.entries(categoriesSpentObj)) {
-      await Categories.findOneAndUpdate(
-        { user_id, 'categories.name': categoryName },
-        { $inc: { 'categories.$.spent': spentAmount } }
       ).exec();
     }
   };

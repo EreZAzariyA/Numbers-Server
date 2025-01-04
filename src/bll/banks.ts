@@ -213,7 +213,7 @@ class BankLogic {
       const existedTransaction = await transactionsLogic
         .fetchUserBankTransaction(originalTransaction, companyId, user_id);
       if (existedTransaction) {
-        if (existedTransaction.status?.toLowerCase() !== originalTransaction.status?.toLowerCase()) {
+        if (existedTransaction.status?.toLowerCase() !== status?.toLowerCase()) {
           try {
             const trans = await transactionsLogic.updateTransactionStatus(existedTransaction, status);
             inserted.push(trans);
@@ -235,17 +235,15 @@ class BankLogic {
         }
       }
 
-      const identifier = originalTransaction.identifier ?? undefined;
-
       const transaction = {
+        ...originalTransaction,
         user_id,
         date,
-        identifier: identifier,
         description,
         companyId,
         status,
         amount: originalAmount || chargedAmount,
-        category_id: originalTransactionCategory._id
+        category_id: originalTransactionCategory._id,
       };
       if (isCardTransactions) {
         const transToInsert = new CardTransactions({ ...transaction, cardNumber: transCardNumber });

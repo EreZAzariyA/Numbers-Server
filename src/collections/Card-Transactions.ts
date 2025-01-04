@@ -1,7 +1,7 @@
-import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
-export interface ICardTransactionModel extends Document {
+export interface ICardTransactionModel extends Transaction, Document {
   user_id: Schema.Types.ObjectId;
   cardNumber: string | number;
   date: string;
@@ -9,7 +9,7 @@ export interface ICardTransactionModel extends Document {
   category_id: Schema.Types.ObjectId;
   description: string;
   amount: number;
-  status?: TransactionStatuses;
+  status: TransactionStatuses;
   companyId?: string;
 };
 
@@ -46,8 +46,17 @@ const CardTransactionsSchema = new Schema<ICardTransactionModel>({
     type: Number,
     required: [true, "Amount is missing"],
   },
-  status: String,
-  companyId: String
+  status: {
+    type: String,
+    default: TransactionStatuses.Completed
+  },
+  companyId: String,
+  type: String,
+  installments: Schema.Types.Mixed,
+  processedDate: String,
+  originalAmount: Number,
+  chargedAmount: Number,
+  memo: String
 }, {
   versionKey: false,
   autoIndex: true,

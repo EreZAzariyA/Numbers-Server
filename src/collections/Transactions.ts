@@ -1,14 +1,14 @@
 import { Document, model, Schema, Types } from "mongoose";
-import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 
-export interface ITransactionModel extends Document {
+export interface ITransactionModel extends Transaction, Document {
   user_id: Types.ObjectId;
   date: string;
   identifier: number | string;
   category_id: Types.ObjectId;
   description: string;
   amount: number;
-  status: string;
+  status: TransactionStatuses;
   companyId: string;
 };
 
