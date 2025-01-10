@@ -6,11 +6,20 @@ import { isCardProviderCompany } from "../utils/bank-utils";
 import { Model } from "mongoose";
 
 type MainTransactionType = ITransactionModel | ICardTransactionModel;
+export type TransactionParams = {
+  query: object;
+  projection: object;
+  options: object;
+};
+
+export const getTotalTransactionsAmounts = (transactions: MainTransactionType[]): number => {
+  return transactions.reduce((acc, t) => acc + t.amount, 0);
+}
 
 class TransactionsLogic {
   fetchUserTransactions = async (
     user_id: string,
-    params: any,
+    params: Partial<TransactionParams>,
     type?: string,
   ): Promise<{ transactions: (MainTransactionType)[], total: number }> => {
     const { query, projection, options } = params;
@@ -34,20 +43,24 @@ class TransactionsLogic {
     user_id: string
   ): Promise<MainTransactionType> => {
     const isCardTransaction = isCardProviderCompany(companyId);
-    let trans: MainTransactionType = null;
+    let trans: MainTransactionType = undefined;
     const query: object = {
-      ...(transaction?.identifier && {
-          identifier: transaction.identifier
+      ...(transaction?.identifier ? {
+          identifier: isCardTransaction ? transaction.identifier.toString() : transaction.identifier
+        } : {
+          ...(transaction?.memo ? {
+            memo: transaction.memo
+          } : {}),
+          ...(transaction?.date ? {
+            date: transaction.date
+          } : {}),
+          companyId,
+          description: transaction.description,
+          amount: transaction.chargedAmount || transaction.originalAmount,
         }),
-        ...(transaction.memo && {
-          memo: transaction.memo
-        }),
-        description: transaction.description,
-        date: transaction.date,
-        amount: transaction.chargedAmount
     };
 
-    let collection: any = Transactions;
+    let collection: Model<MainTransactionType> = Transactions;
     if (isCardTransaction) {
       collection = CardTransactions;
     }

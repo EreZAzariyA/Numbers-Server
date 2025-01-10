@@ -118,15 +118,16 @@ class BankLogic {
 
     if (account?.cardsPastOrFutureDebit && isArrayAndNotEmpty(account.cardsPastOrFutureDebit?.cardsBlock)) {
       const promises = account.cardsPastOrFutureDebit.cardsBlock
-      .filter((card) => isArrayAndNotEmpty(card.txns))
-      .map(async (card) => {
-        try {
-          const cardTransactions = await this.importTransactions(card.txns, user_id, details.companyId);
-          insertedTransactions = [...insertedTransactions, ...cardTransactions];
-        } catch (error) {
-          throw new ClientError(500, error?.message || error);
-        }
-      });
+        .filter((card) => isArrayAndNotEmpty(card.txns))
+        .map(async (card) => {
+          if (card.cardStatusCode && card.cardStatusCode === 9) return;
+          try {
+            const cardTransactions = await this.importTransactions(card.txns, user_id, details.companyId);
+            insertedTransactions = [...insertedTransactions, ...cardTransactions];
+          } catch (error) {
+            throw new ClientError(500, error?.message || error);
+          }
+        });
 
       await Promise.all(promises);
     }
@@ -207,7 +208,8 @@ class BankLogic {
         description,
         categoryDescription,
         category,
-        cardNumber: transCardNumber,
+        identifier,
+        cardNumber,
       } = originalTransaction;
 
       const existedTransaction = await transactionsLogic
@@ -236,17 +238,21 @@ class BankLogic {
       }
 
       const transaction = {
-        ...originalTransaction,
         user_id,
         date,
         description,
         companyId,
         status,
+        identifier,
         amount: originalAmount || chargedAmount,
         category_id: originalTransactionCategory._id,
       };
       if (isCardTransactions) {
-        const transToInsert = new CardTransactions({ ...transaction, cardNumber: transCardNumber });
+        const transToInsert = new CardTransactions({
+          ...transaction,
+          ...originalTransaction,
+          cardNumber
+        });
         cardsTransactionsToInsert.push(transToInsert);
       } else {
         const transToInsert = new Transactions(transaction);
