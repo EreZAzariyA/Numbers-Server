@@ -4,6 +4,10 @@ import { ErrorMessages } from "../utils/helpers";
 import { Categories, ICategories } from "../collections/Categories";
 import { Types } from "mongoose";
 import { UserModel } from "../models/user-model";
+import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { ITransactionModel, Transactions } from "../collections/Transactions";
+import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
+import { getTotalTransactionsAmounts } from "./transactions";
 
 export const getAmountToUpdate = (amount: number) => {
   let newAmount = 0;
@@ -34,9 +38,29 @@ class CategoriesLogic {
     return accountCategories.save();
   };
 
-  async fetchCategoriesByUserId (user_id: string): Promise<ICategoryModel[]> {
+  async fetchCategoriesByUserId (user_id: string): Promise<(ICategoryModel & {
+    transactions: (ITransactionModel | ICardTransactionModel)[]
+  })[]> {
     const userCategories = await Categories.findOne({ user_id }).exec();
-    return userCategories?.categories || [];
+
+    return await Promise.all(userCategories.categories?.map(async (category) => {
+      const transactions = await Transactions.find({
+        user_id,
+        category_id: category._id,
+        status: TransactionStatuses.Completed
+      }).exec();
+      const cardTransactions = await CardTransactions.find({
+        user_id,
+        category_id: category._id,
+        status: TransactionStatuses.Completed
+      }).exec();
+
+      return {
+        ...category.toObject(),
+        spent: getTotalTransactionsAmounts([...transactions, ...cardTransactions]),
+        transactions: [...transactions, ...cardTransactions]?.length
+      }
+    }));
   };
 
   async fetchUserCategory (user_id: string, categoryName: string): Promise<ICategoryModel> {

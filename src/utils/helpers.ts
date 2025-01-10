@@ -41,3 +41,11 @@ export const getFutureDebitDate = (dateString: string | number): number => {
   }
   return moment(dateString).valueOf()
 };
+
+export const asNumString = (num: number = 0, digits: number = 2): string => {
+  if (!num || typeof num !== 'number') {
+    return '0'
+  }
+  const formattedNumber = num?.toFixed(digits);
+  return parseFloat(formattedNumber || '0').toLocaleString();
+};

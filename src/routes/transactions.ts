@@ -1,9 +1,9 @@
 import express, { NextFunction, Request, Response } from "express";
-import transactionsLogic from "../bll/transactions";
+import transactionsLogic, { TransactionParams } from "../bll/transactions";
 
 type RequestBody = {
   type: string;
-  query: object;
+  query: TransactionParams;
 };
 
 const router = express.Router();
@@ -11,7 +11,7 @@ const router = express.Router();
 router.get("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const { type = null, query = {} }: Partial<RequestBody>  = req.query;
+    const { type = null, query }: Partial<RequestBody>  = req.query;
     const { transactions, total } = await transactionsLogic.fetchUserTransactions(user_id, query, type);
     res.status(201).json({ transactions, total });
   } catch (err: any) {
