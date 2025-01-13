@@ -211,6 +211,7 @@ class BankLogic {
         identifier,
         cardNumber,
       } = originalTransaction;
+      if (!identifier) continue;
 
       const existedTransaction = await transactionsLogic
         .fetchUserBankTransaction(originalTransaction, companyId, user_id);
