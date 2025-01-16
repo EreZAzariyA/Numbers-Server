@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "dist/app.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "dist/bll/**/*",
+          "dist/collections/**/*",
+          "dist/dal/**/*",
+          "dist/middlewares/**/*",
+          "dist/public/**/*",
+          "dist/routes/**/*",
+          "dist/utils/**/*"
+        ]
+      }
+    }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "dist/app.js" }
+  ]
+}

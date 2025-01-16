@@ -1,5 +1,5 @@
-import cors from "cors";
 import express, { Response } from "express";
+import cors from "cors";
 import config from "./utils/config";
 import connectToMongoDB from "./dal/dal";
 import errorsHandler from "./middlewares/errors-handler";
@@ -16,11 +16,13 @@ app.use(cors({
   origin: [
     'http://127.0.0.1:3000',
     'http://localhost:3000',
+    'http://localhost:3001',
     'https://ea-numbers.vercel.app',
     'https://ea-numbers-test.vercel.app',
   ],
   credentials: true
 }));
+
 
 app.use('/api/auth', authenticationRouter);
 app.use('/api/users', verifyToken, usersRouter);
