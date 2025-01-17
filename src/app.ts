@@ -11,7 +11,6 @@ import categoriesRouter from "./routes/categories";
 import bankRouter from "./routes/bank";
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
 app.use(cors({
   origin: [
     'http://127.0.0.1:3000',
@@ -22,6 +21,7 @@ app.use(cors({
   ],
   credentials: true
 }));
+app.use(express.json({ limit: '10mb' }));
 
 
 app.use('/api/auth', authenticationRouter);
