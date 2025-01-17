@@ -30,6 +30,10 @@ app.use('/api/transactions', verifyToken, transactionsRouter);
 app.use('/api/categories', verifyToken, categoriesRouter);
 app.use('/api/banks', verifyToken, bankRouter);
 
+app.get('/test', (req, res) => {
+  res.json({ message: 'CORS is working!' });
+});
+
 app.use("*", (_, res: Response) => {
   res.status(404).send('Route Not Found');
 });
