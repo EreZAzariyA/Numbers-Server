@@ -2,18 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "dist/**/*.js",
+      "src": "src/**/*.ts",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "dist/app.js"
-    },
-    {
-      "src": "/transactions/:user_id",
-      "dest": "/api/transactions/:user_id"
+      "dest": "src/app.ts"
     }
   ]
 }
