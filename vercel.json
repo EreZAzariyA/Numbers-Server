@@ -6,7 +6,7 @@
       "use": "@vercel/node"
     },
     {
-      "src": "src/**/*.ts",
+      "src": "src/routes/*.ts",
       "use": "@vercel/node"
     }
   ],
