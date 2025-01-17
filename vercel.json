@@ -1,12 +1,21 @@
 {
   "version": 2,
   "builds": [
-    {"src": "*.ts", "use": "@vercel/node"}
+    {
+      "src": "src/app.ts",
+      "use": "@vercel/node"
+    }
   ],
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/"
+      "dest": "/app.ts"
     }
-  ]
+  ],
+  "outputDirectory": "dist",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./src ./public ./vercel.json"
 }
