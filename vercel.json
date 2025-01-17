@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "src/app.ts",
+      "src": "dist/app.js",
       "use": "@vercel/node"
     }
   ],
@@ -13,9 +13,8 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/app.ts"
+      "dest": "/app.js"
     }
   ],
-  "outputDirectory": "dist",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./src ./public ./vercel.json"
+  "outputDirectory": "dist"
 }
