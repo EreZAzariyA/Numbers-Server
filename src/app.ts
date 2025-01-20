@@ -10,15 +10,24 @@ import transactionsRouter from "./routes/transactions";
 import categoriesRouter from "./routes/categories";
 import bankRouter from "./routes/bank";
 
+const allowedOrigins = [
+  'http://127.0.0.1:3000',
+  'http://localhost:3000',
+  'https://ea-numbers.vercel.app',
+  'https://ea-numbers-test.vercel.app',
+  process.env.CLIENT
+];
+
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(cors({
-  origin: [
-    'http://127.0.0.1:3000',
-    'http://localhost:3000',
-    'https://ea-numbers.vercel.app',
-    'https://ea-numbers-test.vercel.app',
-  ],
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, origin);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
