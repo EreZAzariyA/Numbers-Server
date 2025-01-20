@@ -2,7 +2,7 @@
 require('dotenv').config();
 
 abstract class Config {
-  public port: number = +process.env.PORT;
+  public port: number = +process.env.PORT || 5005;
   public isProduction: boolean;
   public loginExpiresIn: string;
   public mongoConnectionString: string;
