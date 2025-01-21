@@ -6,11 +6,14 @@ import jwt from "../utils/jwt";
 import google from "../utils/google";
 import { ErrorMessages, MAX_LOGIN_ATTEMPTS, removeServicesFromUser } from "../utils/helpers";
 import { OAuth2Client } from "google-auth-library";
+import connectToMongoDB from "../dal/dal";
 
 const client = new OAuth2Client();
 
 class AuthenticationLogic {
   signup = async (user: IUserModel): Promise<string> => {
+    await connectToMongoDB();
+
     const newEncryptedPassword: string = await encryptPassword(user.services.password);
     user.services.password = newEncryptedPassword;
 
@@ -26,6 +29,7 @@ class AuthenticationLogic {
   };
 
   signin = async (credentials: CredentialsModel): Promise<string> => {
+    await connectToMongoDB();
     const user = await UserModel.findOne({ 'emails.email': credentials.email }).exec();
     if (!user) {
       throw new ClientError(400, ErrorMessages.INCORRECT_PASSWORD);
@@ -58,6 +62,8 @@ class AuthenticationLogic {
   };
 
   google = async (credential: string, clientId: string): Promise<string> => {
+    await connectToMongoDB();
+
     const loginTicket = await client.verifyIdToken({ idToken: credential, audience: clientId });
     const email = loginTicket.getPayload().email;
 

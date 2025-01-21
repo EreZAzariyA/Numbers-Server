@@ -43,7 +43,8 @@ app.use("*", (_, res: Response) => {
 
 app.listen(config.port, () => {
   console.log(`Listening on port: ${config.port}, isProduction: ${config.isProduction}`);
-  connectToMongoDB().then((collectionName) => {
+  connectToMongoDB().then((db) => {
+    const collectionName = db.connections[0].name;
     console.log(`Successfully connected to: ${collectionName}`);
   });
 });
