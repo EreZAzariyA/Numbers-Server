@@ -319,6 +319,18 @@ class BankLogic {
       throw new ClientError(500, `Error saving the document: ${err}`)
     }
   };
+
+  removeBankAccount = async (user_id: string, bank_id: string): Promise<void> => {
+    const bankAccount = await this.fetchOneBankAccount(user_id, bank_id);
+    if (!bankAccount) {
+      throw new ClientError(500, ErrorMessages.USER_BANK_ACCOUNT_NOT_FOUND);
+    }
+    await Accounts.findOneAndUpdate({ user_id }, {
+      $pull: {
+        banks: { _id: bankAccount._id }
+      }
+    }).exec();
+  };
 };
 
 const bankLogic = new BankLogic();
