@@ -77,6 +77,17 @@ router.post('/set-main-account/:user_id', async (req: Request, res: Response, ne
   } catch (err: any) {
     next(err);
   }
+});
+
+router.delete('/remove-bank/:user_id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user_id = req.params.user_id;
+    const bank_id = req.body.bank_id;
+    await bankLogic.removeBankAccount(user_id, bank_id);
+    res.sendStatus(200);
+  } catch (err: any) {
+    next(err);
+  }
 })
 
 export default router;
