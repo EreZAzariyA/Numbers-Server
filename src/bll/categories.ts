@@ -9,17 +9,6 @@ import { ITransactionModel, Transactions } from "../collections/Transactions";
 import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
 import { getTotalTransactionsAmounts } from "./transactions";
 
-export const getAmountToUpdate = (amount: number) => {
-  let newAmount = 0;
-  if (amount > 0) {
-    newAmount = amount * -1;
-  } else {
-    newAmount = Math.abs(amount);
-  }
-
-  return newAmount;
-}
-
 class CategoriesLogic {
   async createAccountCategories (user_id: string): Promise<ICategories> {
     console.info(`createAccountCategories: Creating categories object for user: ${user_id}`);

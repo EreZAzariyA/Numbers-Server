@@ -148,19 +148,11 @@ class TransactionsLogic {
   removeTransaction = async (user_id: string, transaction_id: string, type: string = 'transactions'): Promise<void> => {
     const isCardTransaction = type !== 'transactions';
     const query = { user_id, _id: transaction_id };
-    // const transactionToRemove = await Transactions.findById(transaction_id).exec();
-    // const amountToUpdate = getAmountToUpdate(transactionToRemove.amount);
-
     try {
       if (isCardTransaction) {
         await CardTransactions.findOneAndDelete(query).exec();
       }
       await Transactions.findByIdAndDelete(query).exec();
-      // await categoriesLogic.updateCategorySpentAmount(
-      //   transactionToRemove.user_id,
-      //   transactionToRemove.category_id,
-      //   amountToUpdate
-      // );
     } catch (err: any) {
       console.log(err);
     }
