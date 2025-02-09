@@ -138,7 +138,11 @@ export const createBank = async (
   const bankAccount = new BankModel({
     bankName,
     isCardProvider,
-    lastConnection: new Date().valueOf(),
+    lastConnection: {
+      date: new Date().toISOString(),
+      message: 'success',
+      success: true
+    },
     details: {
       accountNumber: account.accountNumber,
       balance: account.balance,
@@ -156,12 +160,13 @@ export const createBank = async (
   return bankAccount;
 };
 
-export const createUpdateQuery = (
-  account: TransactionsAccount,
-  details: UserBankCredentialModel
-): object => ({
+export const createUpdateQuery = (account: TransactionsAccount, details: UserBankCredentialModel): object => ({
   $set: {
-    'banks.$.lastConnection': new Date().valueOf(),
+    'banks.$.lastConnection': {
+      'date': new Date().toISOString(),
+      'message': 'success',
+      'success': true
+    },
     'banks.$.details': {
       balance: account?.balance,
     },
@@ -175,3 +180,39 @@ export const createUpdateQuery = (
     })
   }
 });
+
+export const createBankErrorStatus = async (user_id: string, bankName: string, message: string, bank_id?: string) => {
+  console.info('Creating bank error...');
+
+  const userAccount = await Accounts.findOne({ user_id }).exec();
+  if (!userAccount) {
+    return;
+  }
+
+  const banks = userAccount.banks || [];
+  const currentBank = banks.find((b) => b.bankName.toLocaleLowerCase() === bankName.toLocaleLowerCase());
+  if (currentBank) {
+    return Accounts.findOneAndUpdate(
+      { user_id, 'banks._id': currentBank._id },
+      {
+        $set: { 'banks.$.lastConnection': {
+          date: new Date().toISOString(),
+          message,
+          success: false
+        }},
+      },
+      { new: true }
+    ).exec();
+  } else {
+    const bankWithError = new BankModel({
+      bankName,
+      lastConnection: {
+        date: new Date().toISOString(),
+        message,
+        success: false
+      }
+    });
+    userAccount.banks.push(bankWithError);
+    return userAccount.save({ validateBeforeSave: true });
+  }
+};

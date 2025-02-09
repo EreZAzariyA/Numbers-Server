@@ -102,7 +102,11 @@ export interface IBankModal extends Document {
     balance: number;
   };
   txns?: Transaction[];
-  lastConnection: number;
+  lastConnection: {
+    date: number;
+    success: boolean;
+    message: string;
+  };
   extraInfo: Partial<AccountInfoType>;
   pastOrFutureDebits: PastOrFutureDebitType[];
   cardsPastOrFutureDebit: CardsPastOrFutureDebitType;
@@ -132,8 +136,18 @@ export const BankScheme = new Schema<IBankModal>({
     }
   },
   lastConnection: {
-    type: Number,
-    default: new Date().valueOf()
+    date: {
+      type: String,
+      default: new Date().valueOf()
+    },
+    success: {
+      type: Boolean,
+      default: undefined
+    },
+    message: {
+      type: String,
+      default: undefined
+    },
   },
   extraInfo: AccountInfoScheme,
   savings: AccountSavesScheme,

@@ -1,6 +1,6 @@
 import { UserModel } from "../models/user-model";
 import ClientError from "../models/client-error";
-import { SupportedCompanies, getBankData, insertBankAccount, isCardProviderCompany } from "../utils/bank-utils";
+import { SupportedCompanies, createBankErrorStatus, getBankData, insertBankAccount, isCardProviderCompany } from "../utils/bank-utils";
 import { ErrorMessages, getFutureDebitDate, isArrayAndNotEmpty } from "../utils/helpers";
 import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import jwt from "../utils/jwt";
@@ -53,7 +53,12 @@ class BankLogic {
 
     const scrapeResult = await getBankData(details);
     if (scrapeResult.errorType || scrapeResult.errorMessage) {
-      console.error(`Scraper error on 'BankLogic/fetchBankData': ${scrapeResult.errorMessage}.`);
+      try {
+        await createBankErrorStatus(user._id?.toString(), details.companyId, scrapeResult.errorMessage)
+      } catch (error) {
+        console.log(`Error while trying to create error sub-document: ${JSON.stringify(error)}`);
+      }
+      console.error(`Scraper error on 'BankLogic/fetchBankData' ${scrapeResult?.errorType ? `- ${scrapeResult.errorType}` : ''}: ${scrapeResult.errorMessage} for user ${user_id}.`);
       throw new ClientError(500, ErrorMessages.SOME_ERROR_TRY_AGAIN);
     }
 
