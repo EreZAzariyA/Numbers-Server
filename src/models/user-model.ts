@@ -1,6 +1,6 @@
 import { Document, Schema, model } from "mongoose";
-import { Languages, ThemeColors, ThemeType } from "./theme-model";
 import { EmailType, GoogleUserType } from "../utils/types";
+import { Languages, ThemeColors } from "../utils/helpers";
 
 const EmailSchema = new Schema<EmailType>({
   email: {
@@ -48,7 +48,7 @@ export interface IUserModel extends Document {
   };
   emails: [EmailType];
   config: {
-    'theme-color': ThemeType,
+    'theme-color': string,
     lang: string
   };
   loginAttempts: {

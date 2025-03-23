@@ -1,5 +1,5 @@
-import { Languages, ThemeColors } from "../models/theme-model";
 import { IUserModel, UserModel } from "../models/user-model";
+import { Languages, ThemeColors } from "../utils/helpers";
 
 class UsersLogic {
   fetchUserProfile = async (user_id: string):Promise<IUserModel> => {

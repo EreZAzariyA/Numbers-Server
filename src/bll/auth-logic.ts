@@ -1,13 +1,11 @@
-import ClientError from "../models/client-error";
-import CredentialsModel from "../models/credentials-model";
-import { IUserModel, UserModel } from "../models/user-model";
+import { googleClient } from "../dal";
+import { IUserModel, ClientError, CredentialsModel, UserModel } from "../models";
 import { comparePassword, encryptPassword } from "../utils/bcrypt-utils";
-import jwt from "../utils/jwt";
 import google from "../utils/google";
 import { ErrorMessages, MAX_LOGIN_ATTEMPTS, removeServicesFromUser } from "../utils/helpers";
-import { OAuth2Client } from "google-auth-library";
+import jwtService from "../utils/jwt";
 
-const client = new OAuth2Client();
+const client = googleClient;
 
 class AuthenticationLogic {
   signup = async (user: IUserModel): Promise<string> => {
@@ -21,7 +19,7 @@ class AuthenticationLogic {
 
     const savedUser = await user.save();
     const userWithoutServices = removeServicesFromUser(savedUser);
-    const token = jwt.getNewToken(userWithoutServices);
+    const token = jwtService.getNewToken(userWithoutServices);
     return token;
   };
 
@@ -52,7 +50,7 @@ class AuthenticationLogic {
     await user.save({ validateBeforeSave: true });
 
     const userWithoutServices = removeServicesFromUser(user);
-    const token = jwt.getNewToken(userWithoutServices);
+    const token = jwtService.getNewToken(userWithoutServices);
 
     return token;
   };
@@ -79,7 +77,7 @@ class AuthenticationLogic {
     }
 
     const userWithoutServices = removeServicesFromUser(user);
-    const token = jwt.getNewToken(userWithoutServices);
+    const token = jwtService.getNewToken(userWithoutServices);
     return token;
   };
 };

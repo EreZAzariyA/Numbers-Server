@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import ClientError from "../models/client-error";
+import { ClientError } from "../models";
 
 export const encryptPassword = async (password: string):Promise<string> => {
   const saltRounds = 10;

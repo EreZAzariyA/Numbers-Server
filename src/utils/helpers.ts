@@ -1,7 +1,20 @@
 import moment from "moment";
-import { IUserModel } from "../models/user-model";
+import bunyan, { LogLevel } from 'bunyan';
+import { IUserModel } from "../models";
+import { CompanyTypes } from "israeli-bank-scrapers-by-e.a";
+import { MainTransactionType } from "./types";
 
 export const MAX_LOGIN_ATTEMPTS = 5;
+
+export enum ThemeColors {
+  DARK = "dark",
+  LIGHT = "light"
+};
+
+export enum Languages {
+  EN = "en",
+  HE = "he"
+};
 
 export enum ErrorMessages {
   NAME_IN_USE = "Name is already in use.",
@@ -20,16 +33,69 @@ export enum ErrorMessages {
   TOKEN_EXPIRED = "Invalid or expired token"
 };
 
+export const SupportedCompanies = {
+  [CompanyTypes.discount]: CompanyTypes.discount,
+  [CompanyTypes.max]: CompanyTypes.max,
+  [CompanyTypes.behatsdaa]: CompanyTypes.behatsdaa,
+  [CompanyTypes.leumi]: CompanyTypes.leumi,
+  [CompanyTypes.visaCal]: CompanyTypes.visaCal,
+};
+
+export const CreditCardProviders = [
+  CompanyTypes.visaCal,
+  CompanyTypes.max,
+  CompanyTypes.behatsdaa,
+];
+
+export enum ENV_TYPE {
+  DEVELOPMENT = 'development',
+  PRODUCTION = 'production',
+};
+
+export interface UserBankCredentials {
+  companyId: string;
+  id: string;
+  password: string;
+  username?: string;
+  num: string;
+  save: boolean;
+};
+
+
+export const getLogger = (name: string, version: string, level: LogLevel) => {
+  return bunyan.createLogger({
+    name: `${name}:${version}`,
+    level,
+    streams: [
+      {
+        stream: process.stdout,
+        level
+      }
+    ]
+  });
+};
+
+export const getLogLevel = (envType: ENV_TYPE): LogLevel => {
+  return envType === ENV_TYPE.DEVELOPMENT ? "debug" : "info";
+};
+
+export const isCardProviderCompany = (company: string) => {
+  return CreditCardProviders.includes(CompanyTypes[company]) || false;
+};
+
+export const getTotalTransactionsAmounts = (transactions: MainTransactionType[]): number => {
+  return transactions.reduce((acc, t) => acc + t.amount, 0);
+};
+
 export const removeServicesFromUser = (user: IUserModel): IUserModel => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { services, ...rest } = user.toObject();
   return rest;
 }
 
-export const isArray = (arr: any[]): boolean => {
+export const isArray = (arr: []): boolean => {
   return Array.isArray(arr);
 };
-export const isArrayAndNotEmpty = (arr: any[]): boolean => {
+export const isArrayAndNotEmpty = (arr: any): boolean => {
   return isArray(arr) && arr.length > 0;
 };
 

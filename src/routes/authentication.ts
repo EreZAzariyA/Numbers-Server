@@ -1,7 +1,6 @@
 import express, { NextFunction, Request, Response } from "express";
-import authLogic from "../bll/auth-logic";
-import CredentialsModel from "../models/credentials-model";
-import { UserModel } from "../models/user-model";
+import { UserModel, CredentialsModel } from "../models";
+import { authLogic } from "../bll";
 
 const router = express.Router();
 

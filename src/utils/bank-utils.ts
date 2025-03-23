@@ -1,32 +1,13 @@
 import moment from "moment";
 import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers-by-e.a";
-import bankLogic, { UserBankCredentialModel } from "../bll/banks";
-import ClientError from "../models/client-error";
-import { ErrorMessages } from "./helpers";
 import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
-import jwt from "./jwt";
-import { BankModel, IBankModal } from "../models/bank-model";
-import { Accounts } from "../collections/Banks";
+import { ClientError, BankModel, IBankModal } from "../models";
+import { Accounts } from "../collections";
+import { bankLogic } from "../bll";
+import jwtService from "./jwt";
+import { ErrorMessages, isCardProviderCompany, SupportedCompanies, UserBankCredentials } from "./helpers";
 
-export const SupportedCompanies = {
-  [CompanyTypes.discount]: CompanyTypes.discount,
-  [CompanyTypes.max]: CompanyTypes.max,
-  [CompanyTypes.behatsdaa]: CompanyTypes.behatsdaa,
-  [CompanyTypes.leumi]: CompanyTypes.leumi,
-  [CompanyTypes.visaCal]: CompanyTypes.visaCal,
-};
-
-export const CreditCardProviders = [
-  CompanyTypes.visaCal,
-  CompanyTypes.max,
-  CompanyTypes.behatsdaa,
-];
-
-export const isCardProviderCompany = (company: string) => {
-  return CreditCardProviders.includes(CompanyTypes[company]) || false;
-};
-
-export const createCredentials = (details: UserBankCredentialModel): ScraperCredentials => {
+export const createCredentials = (details: UserBankCredentials): ScraperCredentials => {
   if (!SupportedCompanies[details.companyId]) {
     throw new ClientError(500, `${ErrorMessages.COMPANY_NOT_SUPPORTED} - ${details.companyId}`);
   }
@@ -57,7 +38,7 @@ export const createCredentials = (details: UserBankCredentialModel): ScraperCred
   return credentials;
 };
 
-export const getBankData = async (details: UserBankCredentialModel): Promise<ScraperScrapingResult> => {
+export const getBankData = async (details: UserBankCredentials): Promise<ScraperScrapingResult> => {
   const lastYear = moment().subtract('1', 'years').calendar();
 
   const options: ScraperOptions = {
@@ -77,7 +58,7 @@ export const getBankData = async (details: UserBankCredentialModel): Promise<Scr
 
 export const insertBankAccount = async (
   user_id: string,
-  details: UserBankCredentialModel,
+  details: UserBankCredentials,
   account: TransactionsAccount
 ): Promise<IBankModal> => {
   const banksAccount = await bankLogic.fetchMainAccount(user_id);
@@ -107,7 +88,7 @@ const updateBank = async (
   currBankAccount: IBankModal,
   user_id: string,
   account: TransactionsAccount,
-  details: UserBankCredentialModel
+  details: UserBankCredentials
 ): Promise<IBankModal> => {
   const query = createUpdateQuery(account, details);
   const options = {
@@ -130,7 +111,7 @@ const updateBank = async (
 
 export const createBank = async (
   bankName: string,
-  credentialsDetails: UserBankCredentialModel,
+  credentialsDetails: UserBankCredentials,
   account: TransactionsAccount
 ): Promise<IBankModal> => {
   const isCardProvider = isCardProviderCompany(credentialsDetails.companyId);
@@ -149,7 +130,7 @@ export const createBank = async (
     savings: account?.saving,
     loans: account?.loans,
     ...(credentialsDetails?.save && {
-      credentials: jwt.createNewToken(credentialsDetails),
+      credentials: jwtService.createNewToken(credentialsDetails),
     }),
   });
 
@@ -158,7 +139,7 @@ export const createBank = async (
 
 export const createUpdateQuery = (
   account: TransactionsAccount,
-  details: UserBankCredentialModel
+  details: UserBankCredentials
 ): object => ({
   $set: {
     'banks.$.lastConnection': new Date().valueOf(),
@@ -171,7 +152,7 @@ export const createUpdateQuery = (
     'banks.$.savings': account?.saving,
     'banks.$.loans': account?.loans,
     ...(details.save && {
-      'banks.$.credentials': jwt.createNewToken(details)
+      'banks.$.credentials': jwtService.createNewToken(details)
     })
   }
 });

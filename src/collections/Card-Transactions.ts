@@ -1,4 +1,4 @@
-import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { Transaction, TransactionStatuses, TransactionTypes } from "israeli-bank-scrapers-by-e.a/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
 export interface ICardTransactionModel extends Transaction, Document {
@@ -52,11 +52,6 @@ const CardTransactionsSchema = new Schema<ICardTransactionModel>({
   },
   companyId: String,
   type: String,
-  installments: Schema.Types.Mixed,
-  processedDate: String,
-  originalAmount: Number,
-  chargedAmount: Number,
-  memo: String
 }, {
   versionKey: false,
   autoIndex: true,

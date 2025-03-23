@@ -1,3 +1,6 @@
+import { Transaction } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { ICardTransactionModel, ITransactionModel } from "../models";
+
 export type GoogleUserType = {
   sub: string;
   name: string;
@@ -14,3 +17,5 @@ export type EmailType = {
   isValidate: boolean,
   isActive: boolean
 };
+
+export type MainTransactionType = ITransactionModel | ICardTransactionModel;

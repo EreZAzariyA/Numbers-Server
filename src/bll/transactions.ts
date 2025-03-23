@@ -1,20 +1,15 @@
-import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
-import ClientError from "../models/client-error";
-import { ITransactionModel, Transactions } from "../collections/Transactions";
-import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
-import { isCardProviderCompany } from "../utils/bank-utils";
 import { Model } from "mongoose";
+import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { ClientError, ICardTransactionModel, ITransactionModel } from "../models";
+import { Transactions, CardTransactions } from "../collections";
+import { isCardProviderCompany } from "../utils/helpers";
+import { MainTransactionType } from "../utils/types";
 
-type MainTransactionType = ITransactionModel | ICardTransactionModel;
 export type TransactionParams = {
   query: object;
   projection: object;
   options: object;
 };
-
-export const getTotalTransactionsAmounts = (transactions: MainTransactionType[]): number => {
-  return transactions.reduce((acc, t) => acc + t.amount, 0);
-}
 
 class TransactionsLogic {
   fetchUserTransactions = async (
@@ -23,7 +18,7 @@ class TransactionsLogic {
     type?: string,
   ): Promise<{ transactions: (MainTransactionType)[], total: number }> => {
     const { query, projection, options } = params;
-    const collection: Model<MainTransactionType> = type === 'creditCards' ? CardTransactions : Transactions;
+    const collection: Model<any> = type === 'creditCards' ? CardTransactions : Transactions;
 
     let transactions = [];
     let total: number = 0;
@@ -60,7 +55,7 @@ class TransactionsLogic {
         }),
     };
 
-    let collection: Model<MainTransactionType> = Transactions;
+    let collection: Model<any> = Transactions;
     if (isCardTransaction) {
       collection = CardTransactions;
     }
@@ -103,7 +98,7 @@ class TransactionsLogic {
 
   updateTransaction = async (user_id: string, transaction: MainTransactionType, type: string = 'Account'): Promise<MainTransactionType> => {
     const isCardTransaction = type !== 'transactions';
-    const collection: Model<MainTransactionType> = isCardTransaction ? CardTransactions : Transactions;
+    const collection: Model<any> = isCardTransaction ? CardTransactions : Transactions;
 
     const currentTransaction = await collection.findOne({ user_id, _id: transaction._id }).exec();
     if (!currentTransaction) {

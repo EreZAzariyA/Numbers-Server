@@ -1,31 +1,16 @@
-import { UserModel } from "../models/user-model";
-import ClientError from "../models/client-error";
-import { SupportedCompanies, getBankData, insertBankAccount, isCardProviderCompany } from "../utils/bank-utils";
-import { ErrorMessages, getFutureDebitDate, isArrayAndNotEmpty } from "../utils/helpers";
 import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { categoriesLogic, transactionsLogic } from ".";
+import { CardTransactions, Accounts, Transactions } from "../collections";
+import { ClientError, UserModel, IBankModal, ITransactionModel, ICategoryModel, IAccountModel, ICardTransactionModel } from "../models";
+import { ErrorMessages, getFutureDebitDate, isArrayAndNotEmpty, isCardProviderCompany, SupportedCompanies, UserBankCredentials } from "../utils/helpers";
 import jwt from "../utils/jwt";
-import categoriesLogic from "./categories";
-import { ITransactionModel, Transactions } from "../collections/Transactions";
-import transactionsLogic from "./transactions";
-import { IBankModal } from "../models/bank-model";
-import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
-import { ICategoryModel } from "../models/category-model";
-import { Accounts, IAccountModel } from "../collections/Banks";
+import { getBankData, insertBankAccount } from "../utils/bank-utils";
 
 interface RefreshedBankAccountDetails {
   bank: IBankModal; // full inserted bank - no account.txns or cardsBlock.txns
   account: TransactionsAccount; // scrapper account - account.txns + cardsBlock.txns
   importedTransactions?: ITransactionModel[];
   importedCategories?: ICategoryModel[];
-};
-
-export interface UserBankCredentialModel {
-  companyId: string;
-  id: string;
-  password: string;
-  username?: string;
-  num: string;
-  save: boolean;
 };
 
 class BankLogic {
@@ -39,7 +24,7 @@ class BankLogic {
   };
 
   fetchBankData = async (
-    details: UserBankCredentialModel,
+    details: UserBankCredentials,
     user_id: string
   ): Promise<RefreshedBankAccountDetails> => {
     const user = await UserModel.findById(user_id).exec();
@@ -64,9 +49,9 @@ class BankLogic {
         account,
         bank
       };
-    } catch (err: any) {
+    } catch (err) {
       console.log(err);
-      throw new ClientError(500, 'Error');
+      throw new ClientError(500, err?.message);
     }
   };
 
@@ -90,7 +75,7 @@ class BankLogic {
       throw new ClientError(500, 'Some error while trying to load decoded credentials. Please contact us');
     }
 
-    const details: UserBankCredentialModel = {
+    const details: UserBankCredentials = {
       companyId: decodedCredentials.companyId,
       id: decodedCredentials.id,
       password: decodedCredentials.password,
@@ -111,8 +96,8 @@ class BankLogic {
       try {
         const transactions = await this.importTransactions(account.txns, user_id, details.companyId);
         insertedTransactions = [...insertedTransactions, ...transactions];
-      } catch (err: any) {
-        throw new ClientError(500, err.message);
+      } catch (err) {
+        throw new ClientError(500, err?.message);
       }
     }
 
@@ -141,7 +126,7 @@ class BankLogic {
         );
         updatedPastOrFutureDebits.sort((a, b) => (getFutureDebitDate(a.debitMonth) - getFutureDebitDate(b.debitMonth)));
         account.pastOrFutureDebits = updatedPastOrFutureDebits;
-      } catch (err: any) {
+      } catch (err) {
         throw new ClientError(500, err.message);
       }
     }
@@ -153,12 +138,12 @@ class BankLogic {
         importedTransactions: insertedTransactions,
         // todo: add importedCategories
       };
-    } catch (err: any) {
-      throw new ClientError(500, err.message);
+    } catch (err) {
+      throw new ClientError(500, err?.message);
     }
   };
 
-  updateBankAccountDetails = async (bank_id: string, user_id: string, newDetails: UserBankCredentialModel) => {
+  updateBankAccountDetails = async (bank_id: string, user_id: string, newDetails: UserBankCredentials) => {
     const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bank_id);
     if (!bankAccount) {
       throw new ClientError(500, ErrorMessages.USER_BANK_ACCOUNT_NOT_FOUND);
@@ -189,7 +174,7 @@ class BankLogic {
     if (!defCategory) {
       try {
         defCategory = await categoriesLogic.addNewCategory('Others', user_id);
-      } catch (err: any) {
+      } catch (err) {
         throw new Error(`[bankLogic/importTransactions]: Some error while trying to add default category - ${err?.message}` );
       }
     }
@@ -220,7 +205,7 @@ class BankLogic {
           try {
             const trans = await transactionsLogic.updateTransactionStatus(existedTransaction, status);
             inserted.push(trans);
-          } catch (err: any) {
+          } catch (err) {
             console.log(`Some error while trying to update transaction ${existedTransaction.identifier} - ${err?.message}`);
             throw new ClientError(500, `Some error while trying to update transaction ${existedTransaction.identifier}`);
           }
@@ -277,7 +262,7 @@ class BankLogic {
       }
 
       return inserted;
-    } catch (err: any) {
+    } catch (err) {
       console.log({ ['bankLogic/importTransactions']: err?.message, inserted });
       throw new ClientError(500, 'An error occurred while importing transactions');
     }
@@ -315,7 +300,7 @@ class BankLogic {
         { user_id: bankAccount.user_id },
         { $set: { banks } }
       ).exec();
-    } catch (err: any) {
+    } catch (err) {
       throw new ClientError(500, `Error saving the document: ${err}`)
     }
   };

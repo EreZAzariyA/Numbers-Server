@@ -3,7 +3,7 @@ import bankLogic from "../bll/banks";
 
 const router = express.Router();
 
-router.get('/fetch-all-banks-accounts/:user_id', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/fetch-user-banks-accounts/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
     const banks = await bankLogic.fetchMainAccount(user_id);
@@ -88,6 +88,6 @@ router.delete('/remove-bank/:user_id', async (req: Request, res: Response, next:
   } catch (err: any) {
     next(err);
   }
-})
+});
 
 export default router;

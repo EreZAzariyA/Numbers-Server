@@ -1,13 +1,8 @@
-import { CategoryModel, ICategoryModel } from "../models/category-model";
-import ClientError from "../models/client-error";
-import { ErrorMessages } from "../utils/helpers";
-import { Categories, ICategories } from "../collections/Categories";
 import { Types } from "mongoose";
-import { UserModel } from "../models/user-model";
 import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
-import { ITransactionModel, Transactions } from "../collections/Transactions";
-import { CardTransactions, ICardTransactionModel } from "../collections/Card-Transactions";
-import { getTotalTransactionsAmounts } from "./transactions";
+import { Categories, Transactions, CardTransactions } from "../collections";
+import { ClientError, CategoryModel, ICategoryModel, UserModel, ITransactionModel, ICardTransactionModel, ICategories,  } from "../models";
+import { ErrorMessages, getTotalTransactionsAmounts } from "../utils/helpers";
 
 class CategoriesLogic {
   async createAccountCategories (user_id: string): Promise<ICategories> {
@@ -27,10 +22,14 @@ class CategoriesLogic {
     return accountCategories.save();
   };
 
-  async fetchCategoriesByUserId (user_id: string): Promise<(ICategoryModel & {
+  async fetchCategoriesByUserId (user_id: string): Promise<(ICategoryModel | ICategoryModel & {
     transactions: (ITransactionModel | ICardTransactionModel)[]
   })[]> {
     const userCategories = await Categories.findOne({ user_id }).exec();
+    if (!userCategories) {
+      const newAccountCategories = await this.createAccountCategories(user_id);
+      return newAccountCategories.categories;
+    }
 
     return await Promise.all(userCategories.categories?.map(async (category) => {
       const transactions = await Transactions.find({

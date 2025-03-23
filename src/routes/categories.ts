@@ -1,6 +1,6 @@
 import express, { NextFunction, Request, Response } from "express";
-import categoriesLogic from "../bll/categories";
 import { CategoryModel } from "../models/category-model";
+import { categoriesLogic } from "../bll";
 
 const router = express.Router();
 

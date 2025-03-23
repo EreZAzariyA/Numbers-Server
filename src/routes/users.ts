@@ -1,5 +1,5 @@
 import express, { NextFunction, Request, Response } from "express";
-import usersLogic from "../bll/users";
+import { usersLogic } from "../bll";
 
 const router = express.Router();
 
