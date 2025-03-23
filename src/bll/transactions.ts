@@ -1,5 +1,5 @@
 import { Model } from "mongoose";
-import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { ClientError, ICardTransactionModel, ITransactionModel } from "../models";
 import { Transactions, CardTransactions } from "../collections";
 import { isCardProviderCompany } from "../utils/helpers";

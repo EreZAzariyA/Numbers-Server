@@ -1,6 +1,6 @@
 import moment from "moment";
-import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers-by-e.a";
-import { TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers-for-e.a-servers";
+import { TransactionsAccount } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { ClientError, BankModel, IBankModal } from "../models";
 import { Accounts } from "../collections";
 import { bankLogic } from "../bll";

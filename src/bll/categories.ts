@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import { TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { TransactionStatuses } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { Categories, Transactions, CardTransactions } from "../collections";
 import { ClientError, CategoryModel, ICategoryModel, UserModel, ITransactionModel, ICardTransactionModel, ICategories,  } from "../models";
 import { ErrorMessages, getTotalTransactionsAmounts } from "../utils/helpers";

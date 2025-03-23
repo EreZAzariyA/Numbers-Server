@@ -1,5 +1,5 @@
 import { Document, model, Schema, Types } from "mongoose";
-import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { Transaction, TransactionStatuses } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 
 export interface ITransactionModel extends Transaction, Document {
   user_id: Types.ObjectId;

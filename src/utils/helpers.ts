@@ -1,7 +1,7 @@
 import moment from "moment";
 import bunyan, { LogLevel } from 'bunyan';
 import { IUserModel } from "../models";
-import { CompanyTypes } from "israeli-bank-scrapers-by-e.a";
+import { CompanyTypes } from "israeli-bank-scrapers-for-e.a-servers";
 import { MainTransactionType } from "./types";
 
 export const MAX_LOGIN_ATTEMPTS = 5;

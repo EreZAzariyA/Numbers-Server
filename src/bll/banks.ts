@@ -1,4 +1,4 @@
-import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { categoriesLogic, transactionsLogic } from ".";
 import { CardTransactions, Accounts, Transactions } from "../collections";
 import { ClientError, UserModel, IBankModal, ITransactionModel, ICategoryModel, IAccountModel, ICardTransactionModel } from "../models";

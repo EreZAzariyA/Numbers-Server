@@ -1,4 +1,4 @@
-import { AccountInfoType, AccountSavesType, CardBlockType, CardsPastOrFutureDebitType, MainLoansType, PastOrFutureDebitType, SecuritiesType, Transaction } from "israeli-bank-scrapers-by-e.a/lib/transactions";
+import { AccountInfoType, AccountSavesType, CardBlockType, CardsPastOrFutureDebitType, MainLoansType, PastOrFutureDebitType, SecuritiesType, Transaction } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
 const AccountInfoScheme = new Schema<AccountInfoType>({
