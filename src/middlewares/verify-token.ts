@@ -6,14 +6,13 @@ const verifyToken = async(req: Request, res: Response, next: NextFunction):Promi
   try {
     const isValid = await jwt.verifyToken(req);
     if (!isValid) {
-      const error = new ClientError(401, "Invalid or expired token");
-      next(error);
+      next(new ClientError(401, "Invalid or expired token"));
+      return;
     }
+    next();
   } catch (err: any) {
     next(err);
   }
-
-  next();
 };
 
 export default verifyToken;

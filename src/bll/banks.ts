@@ -5,6 +5,9 @@ import { ClientError, UserModel, IBankModal, ITransactionModel, ICategoryModel, 
 import { ErrorMessages, getFutureDebitDate, isArrayAndNotEmpty, isCardProviderCompany, SupportedCompanies, UserBankCredentials } from "../utils/helpers";
 import jwt from "../utils/jwt";
 import { getBankData, insertBankAccount } from "../utils/bank-utils";
+import cacheService from "../utils/cache-service";
+import { invalidateUserDerivedCaches } from "./transactions";
+import config from "../utils/config";
 
 interface RefreshedBankAccountDetails {
   bank: IBankModal; // full inserted bank - no account.txns or cardsBlock.txns
@@ -43,7 +46,10 @@ class BankLogic {
     }
 
     try {
-      const account = scrapeResult.accounts[0];
+      const account = scrapeResult.accounts?.[0];
+      if (!account) {
+        throw new ClientError(500, 'No account data returned from bank scraper');
+      }
       const bank = await insertBankAccount(user_id, details, account);
       return {
         account,
@@ -89,7 +95,10 @@ class BankLogic {
       throw new ClientError(500, scrapeResult.errorMessage);
     }
 
-    const account = scrapeResult.accounts[0];
+    const account = scrapeResult.accounts?.[0];
+    if (!account) {
+      throw new ClientError(500, 'No account data returned from bank scraper');
+    }
     let insertedTransactions = [];
 
     if (account?.txns && isArrayAndNotEmpty(account.txns)) {
@@ -135,6 +144,7 @@ class BankLogic {
       const bank = await insertBankAccount(user_id, details, account);
       return {
         bank,
+        account,
         importedTransactions: insertedTransactions,
         // todo: add importedCategories
       };
@@ -230,7 +240,7 @@ class BankLogic {
         companyId,
         status,
         identifier,
-        amount: originalAmount || chargedAmount,
+        amount: chargedAmount ?? originalAmount,
         category_id: originalTransactionCategory._id,
       };
       if (isCardTransactions) {
@@ -241,7 +251,10 @@ class BankLogic {
         });
         cardsTransactionsToInsert.push(transToInsert);
       } else {
-        const transToInsert = new Transactions(transaction);
+        const transToInsert = new Transactions({
+          ...transaction,
+          ...originalTransaction,
+        });
         transactionsToInsert.push(transToInsert);
       }
     }
@@ -261,8 +274,32 @@ class BankLogic {
         inserted = [...inserted, ...insertedTrans];
       }
 
+      if (inserted.length > 0) {
+        await invalidateUserDerivedCaches(user_id);
+        if (config.enablePatternPersistence) {
+          try {
+            const { enqueuePatternRecompute } = await import('../queues');
+            await enqueuePatternRecompute(user_id);
+          } catch (_) { /* worker may not be available */ }
+        }
+      }
       return inserted;
-    } catch (err) {
+    } catch (err: any) {
+      // MongoBulkWriteError (e.g. E11000 duplicate key) — expected when re-importing existing
+      // transactions. Extract successfully inserted docs and continue rather than failing the job.
+      if (err?.name === 'MongoBulkWriteError') {
+        inserted = [...inserted, ...(err?.insertedDocs ?? [])];
+        if (inserted.length > 0) {
+          await invalidateUserDerivedCaches(user_id);
+          if (config.enablePatternPersistence) {
+            try {
+              const { enqueuePatternRecompute } = await import('../queues');
+              await enqueuePatternRecompute(user_id);
+            } catch (_) { /* worker may not be available */ }
+          }
+        }
+        return inserted;
+      }
       console.log({ ['bankLogic/importTransactions']: err?.message, inserted });
       throw new ClientError(500, 'An error occurred while importing transactions');
     }
@@ -274,7 +311,7 @@ class BankLogic {
     pastOrFutureDebits: PastOrFutureDebitType[] = []
   ): Promise<PastOrFutureDebitType[]> => {
     const bankAccount = await this.fetchOneBankAccount(user_id, bank_id);
-    const bankPastOrFutureDebits = bankAccount.pastOrFutureDebits || [];
+    const bankPastOrFutureDebits = bankAccount?.pastOrFutureDebits || [];
 
     pastOrFutureDebits.forEach((debit) => {
       if (!bankPastOrFutureDebits.find((d) => d.debitMonth === debit.debitMonth)) {

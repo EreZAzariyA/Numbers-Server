@@ -1,5 +1,5 @@
 import express, { NextFunction, Request, Response } from "express";
-import transactionsLogic, { TransactionParams } from "../bll/transactions";
+import transactionsLogic, { detectRecurringTransactions, TransactionParams } from "../bll/transactions";
 
 type RequestBody = {
   type: string;
@@ -7,6 +7,16 @@ type RequestBody = {
 };
 
 const router = express.Router();
+
+router.get("/recurring/:user_id", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user_id = req.params.user_id;
+    const groups = await detectRecurringTransactions(user_id);
+    res.status(200).json(groups);
+  } catch (err: any) {
+    next(err);
+  }
+});
 
 router.get("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {

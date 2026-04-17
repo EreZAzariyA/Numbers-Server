@@ -6,7 +6,8 @@ async function connectToMongoDB(): Promise<string> {
     const db = await connect(config.mongoConnectionString);
     return db.connections[0].name;
   } catch (err: any) {
-    console.log(err);
+    config.log.error({ err: err.message }, 'MongoDB connection failed');
+    throw err;
   }
 };
 

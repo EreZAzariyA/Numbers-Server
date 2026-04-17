@@ -1,6 +1,7 @@
 import { Request } from "express";
 import jwt, { VerifyErrors } from "jsonwebtoken";
 import config from "./config";
+import cacheService from "./cache-service";
 import { ClientError, IUserModel } from "../models";
 import { usersLogic } from "../bll";
 import { ErrorMessages, UserBankCredentials } from "./helpers";
@@ -31,14 +32,22 @@ class JWTServices {
           if (err) {
             const error = new ClientError(401, ErrorMessages.TOKEN_EXPIRED);
             reject(error);
+            return;
           }
 
           const user: IUserModel = decoded;
           if (user?._id && typeof user._id === 'string') {
-            const userPro = await usersLogic.fetchUserProfile(user._id);
+            const cacheKey = `user-profile:${user._id}`;
+            let userPro = await cacheService.get<IUserModel>(cacheKey);
             if (!userPro) {
-              const err = new ClientError(401, 'User profile not found. Try to reconnect.');
-              reject(err);
+              userPro = await usersLogic.fetchUserProfile(user._id);
+              if (userPro) {
+                await cacheService.set(cacheKey, userPro, 300);
+              }
+            }
+            if (!userPro) {
+              reject(new ClientError(401, 'User profile not found. Try to reconnect.'));
+              return;
             }
           }
 
@@ -67,6 +76,18 @@ class JWTServices {
   public async fetchBankCredentialsFromToken(token: string): Promise<UserBankCredentials> {
     const payload = jwt.decode(token);
     return (payload as any);
+  };
+
+  public createRefreshToken(userId: string): string {
+    return jwt.sign({ _id: userId }, this.secretKey, { expiresIn: config.refreshTokenExpiresIn });
+  };
+
+  public verifyRefreshToken(token: string): { _id: string } | null {
+    try {
+      return jwt.verify(token, this.secretKey) as { _id: string };
+    } catch {
+      return null;
+    }
   };
 };
 

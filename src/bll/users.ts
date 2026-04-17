@@ -1,5 +1,6 @@
 import { IUserModel, UserModel } from "../models/user-model";
 import { Languages, ThemeColors } from "../utils/helpers";
+import cacheService from "../utils/cache-service";
 
 class UsersLogic {
   fetchUserProfile = async (user_id: string):Promise<IUserModel> => {
@@ -13,6 +14,7 @@ class UsersLogic {
       }
     }, { new: true }).exec();
     const selectedTheme = res.config?.['theme-color'] || ThemeColors.LIGHT;
+    await cacheService.del(`user-profile:${user_id}`);
     return selectedTheme;
   };
 
@@ -24,6 +26,7 @@ class UsersLogic {
     }, { new: true }).select('config.lang').exec();
 
     const selectedLang = res.config?.lang || Languages.EN;
+    await cacheService.del(`user-profile:${user_id}`);
     return selectedLang;
   };
 };

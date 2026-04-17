@@ -3,6 +3,7 @@ import { TransactionStatuses } from "israeli-bank-scrapers-for-e.a-servers/lib/t
 import { Categories, Transactions, CardTransactions } from "../collections";
 import { ClientError, CategoryModel, ICategoryModel, UserModel, ITransactionModel, ICardTransactionModel, ICategories,  } from "../models";
 import { ErrorMessages, getTotalTransactionsAmounts } from "../utils/helpers";
+import cacheService from "../utils/cache-service";
 
 class CategoriesLogic {
   async createAccountCategories (user_id: string): Promise<ICategories> {
@@ -25,13 +26,17 @@ class CategoriesLogic {
   async fetchCategoriesByUserId (user_id: string): Promise<(ICategoryModel | ICategoryModel & {
     transactions: (ITransactionModel | ICardTransactionModel)[]
   })[]> {
+    const cacheKey = `categories:${user_id}`;
+    const cached = await cacheService.get<any[]>(cacheKey);
+    if (cached) return cached;
+
     const userCategories = await Categories.findOne({ user_id }).exec();
     if (!userCategories) {
       const newAccountCategories = await this.createAccountCategories(user_id);
       return newAccountCategories.categories;
     }
 
-    return await Promise.all(userCategories.categories?.map(async (category) => {
+    const result = await Promise.all(userCategories.categories?.map(async (category) => {
       const transactions = await Transactions.find({
         user_id,
         category_id: category._id,
@@ -49,6 +54,9 @@ class CategoriesLogic {
         transactions: [...transactions, ...cardTransactions]?.length
       }
     }));
+
+    await cacheService.set(cacheKey, result, 120);
+    return result;
   };
 
   async fetchUserCategory (user_id: string, categoryName: string): Promise<ICategoryModel> {
@@ -91,6 +99,7 @@ class CategoriesLogic {
       throw new ClientError(500, 'Failed to add category');
     }
 
+    await cacheService.del(`categories:${user_id}`);
     return category;
   };
 
@@ -137,6 +146,7 @@ class CategoriesLogic {
       throw new ClientError(404, 'Updated category not found');
     }
 
+    await cacheService.del(`categories:${user_id}`);
     return updatedCategory;
   };
 
@@ -146,6 +156,8 @@ class CategoriesLogic {
       { $pull: { categories: { _id: category_id } } },
       { new: true }
     ).exec();
+
+    await cacheService.del(`categories:${user_id}`);
   };
 };
 

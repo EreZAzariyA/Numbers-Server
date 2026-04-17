@@ -1,4 +1,4 @@
-import { AccountInfoType, AccountSavesType, CardBlockType, CardsPastOrFutureDebitType, MainLoansType, PastOrFutureDebitType, SecuritiesType, Transaction } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
+import { AccountInfoType, AccountSavesType, CardBlockType, CardsPastOrFutureDebitType, CurrentSecuritiesPortfolio, MainLoansType, PastOrFutureDebitType, SecuritiesType, Transaction } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
 const AccountInfoScheme = new Schema<AccountInfoType>({
@@ -53,6 +53,30 @@ const AccountSavesScheme = new Schema<AccountSavesType>({
   businessDate: String,
   totalDepositsCurrentValue: Number,
   currencyCode: String
+}, { _id: false });
+
+const CurrentSecuritiesPortfolioScheme = new Schema<CurrentSecuritiesPortfolio>({
+  BeginYearReturn: Number,
+  BeginYearReturnFlag: Number,
+  BeginYearReturnExceptionalFlag: Number,
+  TransactionTime: String,
+  PortfolioValue: Number,
+  Collaterals: Number,
+  TotalPayFlag: String,
+  TotalPayAmount: Number,
+  LendingFlag: String,
+  DailyPortfolioLossOrProfitDataFlag: String,
+  DailyPortfolioLossOrProfitChangePercent: Number,
+  DailyPortfolioLossOrProfitAmount: Number,
+  BusinessDateFlag: String,
+  ForeignTradeDateFlag: String,
+  CryptoTotalValue: Number,
+  CryptoTotalPercentFromPortfolio: Number,
+}, { _id: false });
+
+const SecuritiesScheme = new Schema<SecuritiesType>({
+  CurrentSecuritiesPortfolio: CurrentSecuritiesPortfolioScheme,
+  Error: { MsgText: String },
 }, { _id: false });
 
 const LoanScheme = new Schema<MainLoansType>({
@@ -123,7 +147,7 @@ export const BankScheme = new Schema<IBankModal>({
   isCardProvider: Boolean,
   details: {
     accountNumber: {
-      type: Number,
+      type: String,
       default: undefined
     },
     balance: {
@@ -139,7 +163,8 @@ export const BankScheme = new Schema<IBankModal>({
   savings: AccountSavesScheme,
   pastOrFutureDebits: [PastOrFutureDebitsScheme],
   cardsPastOrFutureDebit: CardsPastOrFutureDebitsScheme,
-  loans: LoanScheme
+  loans: LoanScheme,
+  securities: SecuritiesScheme,
 });
 
 export const BankModel = model<IBankModal>('Bank', BankScheme);

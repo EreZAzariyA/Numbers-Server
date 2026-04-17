@@ -1,4 +1,5 @@
 import moment from "moment";
+import puppeteer from "puppeteer";
 import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers-for-e.a-servers";
 import { TransactionsAccount } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { ClientError, BankModel, IBankModal } from "../models";
@@ -33,20 +34,39 @@ export const createCredentials = (details: UserBankCredentials): ScraperCredenti
         password: details.password
       };
     break;
+    case SupportedCompanies[CompanyTypes.behatsdaa]:
+      credentials = {
+        id: details.id,
+        password: details.password
+      };
+    break;
+    case SupportedCompanies[CompanyTypes.leumi]:
+      credentials = {
+        username: details.username,
+        password: details.password
+      };
+    break;
   };
 
   return credentials;
 };
 
 export const getBankData = async (details: UserBankCredentials): Promise<ScraperScrapingResult> => {
-  const lastYear = moment().subtract('1', 'years').calendar();
+  const startDate = moment().subtract(1, 'year').toDate();
+
+  const browser = await puppeteer.launch({
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  });
 
   const options: ScraperOptions = {
     companyId: CompanyTypes[details.companyId],
-    startDate: new Date(lastYear),
+    startDate,
     combineInstallments: false,
     showBrowser: false,
-    defaultTimeout: 10000
+    defaultTimeout: 60000,
+    browser,
   };
 
   const credentials = createCredentials(details);
@@ -129,6 +149,7 @@ export const createBank = async (
     pastOrFutureDebits: account?.pastOrFutureDebits,
     savings: account?.saving,
     loans: account?.loans,
+    securities: account?.securities,
     ...(credentialsDetails?.save && {
       credentials: jwtService.createNewToken(credentialsDetails),
     }),
@@ -151,6 +172,7 @@ export const createUpdateQuery = (
     'banks.$.cardsPastOrFutureDebit': account?.cardsPastOrFutureDebit,
     'banks.$.savings': account?.saving,
     'banks.$.loans': account?.loans,
+    'banks.$.securities': account?.securities,
     ...(details.save && {
       'banks.$.credentials': jwtService.createNewToken(details)
     })

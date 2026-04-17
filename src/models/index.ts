@@ -7,6 +7,7 @@ import { ITransactionModel } from "../collections/Transactions";
 import { ICardTransactionModel } from "../collections/Card-Transactions";
 import { IAccountModel } from "../collections/Banks";
 import { ICategories } from "../collections/Categories";
+import { IRecurringPatternModel } from "./recurring-pattern-model";
 
 export {
   ClientError,
@@ -20,5 +21,6 @@ export {
   ITransactionModel,
   ICardTransactionModel,
   IAccountModel,
-  ICategories
+  ICategories,
+  IRecurringPatternModel,
 };

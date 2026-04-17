@@ -1,0 +1,10 @@
+export { normalize, stripTrailingDigits, descriptionKey } from './normalization';
+export { buildMerchantKey, agreesOn } from './merchant-key';
+export { clusterAmounts } from './amount-clustering';
+export { detectFrequency, nextOccurrence } from './frequency-detection';
+export { classify } from './classifier';
+export { computeConfidence } from './confidence';
+export { recomputePatterns, getPatterns, overridePattern, getRecurringGroups } from './pattern-service';
+export { projectMonth } from './projection';
+export { matchEvents } from './matching';
+export { splitSettlements } from './settlement';

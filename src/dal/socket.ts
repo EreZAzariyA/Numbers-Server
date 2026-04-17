@@ -1,30 +1,53 @@
 import { Server as SocketServer } from "socket.io";
 import { Server as HttpServer } from "http";
-
-const options = {
-  cors: {
-    origin: "*"
-  }
-};
+import jwt from "jsonwebtoken";
+import config from "../utils/config";
+import { IUserModel } from "../models";
 
 class SocketIo {
   socket: SocketServer;
 
   initSocketIo = (httpServer: HttpServer) => {
-    this.socket = new SocketServer(httpServer, options);
-    console.log('Socket IO is running...');
+    this.socket = new SocketServer(httpServer, {
+      cors: {
+        origin: config.corsUrls,
+        credentials: true,
+      }
+    });
 
-    this.socket.sockets.on("connection", (socket) => {
-      console.log("One client has been connected...");
+    this.socket.use((socket, next) => {
+      const token = socket.handshake.auth?.token;
+      if (!token) {
+        return next(new Error('Authentication required'));
+      }
+
+      try {
+        const decoded = jwt.verify(token, config.secretKey) as IUserModel;
+        socket.data.userId = decoded._id;
+        next();
+      } catch (err) {
+        next(new Error('Invalid token'));
+      }
+    });
+
+    this.socket.on("connection", (socket) => {
+      const userId = socket.data.userId;
+      if (userId) {
+        socket.join(`user:${userId}`);
+      }
+      config.log.info(`Socket connected: user ${userId}`);
 
       socket.on("disconnect", () => {
-        console.log("One client has been disconnected...");
+        config.log.info(`Socket disconnected: user ${userId}`);
       });
     });
 
-    this.socket.of("/admin").on("connection", () => {
-      console.log('admin-connected');
-    });
+    config.log.info('Socket.IO initialized');
+  };
+
+  emitToUser = (userId: string, event: string, data: any) => {
+    if (!this.socket) return;
+    this.socket.to(`user:${userId}`).emit(event, data);
   };
 };
 

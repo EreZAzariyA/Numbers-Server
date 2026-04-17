@@ -1,22 +1,25 @@
 import { createClient } from 'redis';
-
-const redisUrl = `redis://localhost:6379`;
+import config from './config';
 
 const redisClient = createClient({
-  url: redisUrl,
+  url: config.redisUrl,
 });
 
-const connectRedis = async (): Promise<void> => {
+const connectRedis = async (): Promise<boolean> => {
   try {
     await redisClient.connect();
-    console.log('Redis client connected...');
+    config.log.info('Redis client connected...');
+    return true;
   } catch (err: any) {
-    throw new Error(`[utils/connectRedis] Error: ${err.message}`);
+    config.log.warn(`Redis connection failed: ${err.message}. Caching will be disabled.`);
+    return false;
   }
 };
 
-connectRedis();
+const isRedisAvailable = (): boolean => redisClient.isReady;
 
-redisClient.on('error', (err: any) => console.log({ err }));
+redisClient.on('error', (err: any) => {
+  config.log.warn({ err: err.message }, 'Redis client error');
+});
 
-export default redisClient;
+export { redisClient, connectRedis, isRedisAvailable };

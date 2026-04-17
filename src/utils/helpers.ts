@@ -79,7 +79,8 @@ export const getLogLevel = (envType: ENV_TYPE): LogLevel => {
   return envType === ENV_TYPE.DEVELOPMENT ? "debug" : "info";
 };
 
-export const isCardProviderCompany = (company: string) => {
+export const isCardProviderCompany = (company: string | undefined) => {
+  if (!company) return false;
   return CreditCardProviders.includes(CompanyTypes[company]) || false;
 };
 
@@ -92,7 +93,7 @@ export const removeServicesFromUser = (user: IUserModel): IUserModel => {
   return rest;
 }
 
-export const isArray = (arr: []): boolean => {
+export const isArray = (arr: unknown): boolean => {
   return Array.isArray(arr);
 };
 export const isArrayAndNotEmpty = (arr: any): boolean => {
