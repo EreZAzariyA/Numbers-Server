@@ -1,0 +1,28 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.agentChatRouter = exports.cashFlowRouter = exports.financialHealthRouter = exports.savingsGoalsRouter = exports.forecastRouter = exports.jobsRouter = exports.bankRouter = exports.categoriesRouter = exports.transactionsRouter = exports.usersRouter = exports.authenticationRouter = void 0;
+const authentication_1 = __importDefault(require("./authentication"));
+exports.authenticationRouter = authentication_1.default;
+const users_1 = __importDefault(require("./users"));
+exports.usersRouter = users_1.default;
+const transactions_1 = __importDefault(require("./transactions"));
+exports.transactionsRouter = transactions_1.default;
+const categories_1 = __importDefault(require("./categories"));
+exports.categoriesRouter = categories_1.default;
+const bank_1 = __importDefault(require("./bank"));
+exports.bankRouter = bank_1.default;
+const jobs_1 = __importDefault(require("./jobs"));
+exports.jobsRouter = jobs_1.default;
+const forecast_1 = __importDefault(require("./forecast"));
+exports.forecastRouter = forecast_1.default;
+const savings_goals_1 = __importDefault(require("./savings-goals"));
+exports.savingsGoalsRouter = savings_goals_1.default;
+const financial_health_1 = __importDefault(require("./financial-health"));
+exports.financialHealthRouter = financial_health_1.default;
+const cash_flow_1 = __importDefault(require("./cash-flow"));
+exports.cashFlowRouter = cash_flow_1.default;
+const agent_chat_1 = __importDefault(require("./agent-chat"));
+exports.agentChatRouter = agent_chat_1.default;
