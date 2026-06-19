@@ -1,0 +1,141 @@
+# Numbers backend stack — run from the Numbers-Server directory.
+#
+# The frontend is deployed to Vercel and is not part of this stack.
+# Variable substitution (${VAR}) reads Numbers-Server/.env — see .env.example.
+#
+# Default workflow: bring up the backend + Mongo + Redis + Ollama.
+#   docker compose up -d
+#
+# Backend:   http://localhost:5000
+#
+# Infra only (run the server locally instead of in a container):
+#   docker compose up -d mongodb redis
+#
+# The first time you start, ollama-init pulls the model (may take a few minutes).
+# Model data is persisted in the ollama_data volume — subsequent starts are instant.
+
+services:
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - numbers-net
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - numbers-net
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - numbers-net
+    # Run inference on the NVIDIA GPU. Requires the NVIDIA Container Toolkit on the
+    # host (Docker Desktop on Windows: enable WSL2 + GPU support).
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # One-shot service: pulls the model into the shared ollama_data volume.
+  # Exits after pull completes. On subsequent starts the model is already present.
+  ollama-init:
+    image: ollama/ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull"]
+    command: ["${OLLAMA_MODEL:-qwen2.5:3b}"]
+    networks:
+      - numbers-net
+    restart: "no"
+
+  server:
+    build:
+      context: .
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_CONNECTION_STRING: mongodb://mongodb:27017/numbers
+      REDIS_URL: redis://redis:6379
+      RATE_LIMIT_GLOBAL_WINDOW_MS: ${RATE_LIMIT_GLOBAL_WINDOW_MS:-60000}
+      RATE_LIMIT_GLOBAL_MAX: ${RATE_LIMIT_GLOBAL_MAX:-100}
+      RATE_LIMIT_AUTH_WINDOW_MS: ${RATE_LIMIT_AUTH_WINDOW_MS:-900000}
+      RATE_LIMIT_AUTH_MAX: ${RATE_LIMIT_AUTH_MAX:-10}
+      RATE_LIMIT_BANK_WINDOW_MS: ${RATE_LIMIT_BANK_WINDOW_MS:-3600000}
+      RATE_LIMIT_BANK_MAX: ${RATE_LIMIT_BANK_MAX:-10}
+      BANK_SCRAPER_LOOKBACK_MONTHS: ${BANK_SCRAPER_LOOKBACK_MONTHS:-12}
+      BANK_SCRAPER_TIMEOUT_MS: ${BANK_SCRAPER_TIMEOUT_MS:-60000}
+      BANK_SCRAPER_HEADLESS: ${BANK_SCRAPER_HEADLESS:-true}
+      ENABLE_NIGHTLY_REFRESH: ${ENABLE_NIGHTLY_REFRESH:-true}
+      NIGHTLY_REFRESH_CRON: "${NIGHTLY_REFRESH_CRON:-0 2 * * *}"
+      SCRAPING_WORKER_CONCURRENCY: ${SCRAPING_WORKER_CONCURRENCY:-2}
+      TRANSACTION_IMPORT_WORKER_CONCURRENCY: ${TRANSACTION_IMPORT_WORKER_CONCURRENCY:-3}
+      PATTERN_RECOMPUTE_WORKER_CONCURRENCY: ${PATTERN_RECOMPUTE_WORKER_CONCURRENCY:-2}
+      PATTERN_RECOMPUTE_DEBOUNCE_MS: ${PATTERN_RECOMPUTE_DEBOUNCE_MS:-5000}
+      SECRET_KEY: ${SECRET_KEY}
+      BANK_CREDENTIALS_ENCRYPTION_SECRET: ${BANK_CREDENTIALS_ENCRYPTION_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    networks:
+      - numbers-net
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  redis_data:
+  ollama_data:
+
+networks:
+  numbers-net:

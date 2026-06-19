@@ -1,0 +1,204 @@
+import { Types } from "mongoose";
+import { TransactionStatuses } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
+import { Categories, Transactions, CardTransactions } from "../collections";
+import { ClientError, CategoryModel, ICategoryModel, UserModel, ITransactionModel, ICardTransactionModel, ICategories,  } from "../models";
+import { ErrorMessages, getTotalTransactionsAmounts } from "../utils/helpers";
+import cacheService from "../utils/cache-service";
+
+interface AddNewCategoryOptions {
+  reuseExisting?: boolean;
+}
+
+class CategoriesLogic {
+  private normalizeCategoryName(categoryName: string): string {
+    return categoryName?.trim();
+  }
+
+  async createAccountCategories (user_id: string): Promise<ICategories> {
+    console.info(`createAccountCategories: Creating categories object for user: ${user_id}`);
+
+    const accountCategories = new Categories({
+      user_id,
+      categories: []
+    });
+
+    const errors = accountCategories.validateSync();
+    if (errors) {
+      throw new ClientError(500, errors.message);
+    }
+
+    console.info(`createAccountCategories: Categories object for user: ${user_id} - Created successfully`);
+    return accountCategories.save();
+  };
+
+  async fetchCategoriesByUserId (user_id: string): Promise<(ICategoryModel | ICategoryModel & {
+    transactions: (ITransactionModel | ICardTransactionModel)[]
+  })[]> {
+    const cacheKey = `categories:${user_id}`;
+    const cached = await cacheService.get<any[]>(cacheKey);
+    if (cached) return cached;
+
+    const userCategories = await Categories.findOne({ user_id }).exec();
+    if (!userCategories) {
+      const newAccountCategories = await this.createAccountCategories(user_id);
+      return newAccountCategories.categories;
+    }
+
+    const result = await Promise.all(userCategories.categories?.map(async (category) => {
+      const transactions = await Transactions.find({
+        user_id,
+        category_id: category._id,
+        status: TransactionStatuses.Completed
+      }).exec();
+      const cardTransactions = await CardTransactions.find({
+        user_id,
+        category_id: category._id,
+        status: TransactionStatuses.Completed
+      }).exec();
+
+      return {
+        ...category.toObject(),
+        spent: getTotalTransactionsAmounts([...transactions, ...cardTransactions]),
+        transactions: [...transactions, ...cardTransactions]?.length
+      }
+    }));
+
+    await cacheService.set(cacheKey, result, 120);
+    return result;
+  };
+
+  async fetchUserCategory (user_id: string, categoryName: string): Promise<ICategoryModel | null> {
+    const normalizedCategoryName = this.normalizeCategoryName(categoryName);
+    if (!normalizedCategoryName) {
+      return null;
+    }
+
+    const userCategories = await Categories.findOne({ user_id }).exec();
+    const category = userCategories?.categories.find((c) =>
+      this.normalizeCategoryName(c.name) === normalizedCategoryName
+    );
+
+    return category ?? null;
+  };
+
+  async addNewCategory(
+    categoryName: string,
+    user_id: string,
+    options: AddNewCategoryOptions = {}
+  ): Promise<ICategoryModel> {
+    const normalizedCategoryName = this.normalizeCategoryName(categoryName);
+    if (!normalizedCategoryName) {
+      throw new ClientError(400, "Category name is missing");
+    }
+
+    const user = await UserModel.findById(user_id);
+    if (!user) {
+      console.info(`addNewCategory: Fail to add category: ${normalizedCategoryName} - ${ErrorMessages.USER_NOT_FOUND}`);
+      throw new ClientError(400, ErrorMessages.USER_NOT_FOUND);
+    }
+
+    await Categories.updateOne(
+      { user_id: user._id },
+      { $setOnInsert: { user_id: user._id, categories: [] } },
+      { upsert: true }
+    ).exec();
+
+    const existingCategory = await this.fetchUserCategory(user_id, normalizedCategoryName);
+    if (existingCategory) {
+      if (options.reuseExisting) {
+        return existingCategory;
+      }
+
+      console.info(`addNewCategory: Fail to add category: ${normalizedCategoryName} - ${ErrorMessages.NAME_IN_USE}`);
+      throw new ClientError(409, ErrorMessages.NAME_IN_USE);
+    }
+
+    const category = new CategoryModel({ name: normalizedCategoryName });
+    const updatedCategories = await Categories.findOneAndUpdate(
+      {
+        user_id: user._id,
+        'categories.name': { $ne: normalizedCategoryName }
+      },
+      { $push: { categories: category } },
+      { new: true }
+    ).exec();
+
+    if (!updatedCategories) {
+      const categoryAfterRace = await this.fetchUserCategory(user_id, normalizedCategoryName);
+      if (categoryAfterRace) {
+        if (options.reuseExisting) {
+          return categoryAfterRace;
+        }
+
+        console.info(`addNewCategory: Fail to add category: ${normalizedCategoryName} - ${ErrorMessages.NAME_IN_USE}`);
+        throw new ClientError(409, ErrorMessages.NAME_IN_USE);
+      }
+
+      console.error('Failed to add category, document not found or created.');
+      throw new ClientError(500, 'Failed to add category');
+    }
+
+    await cacheService.del(`categories:${user_id}`);
+    return category;
+  };
+
+  async updateCategorySpentAmount (
+    user_id: Types.ObjectId,
+    category_id: Types.ObjectId,
+    amount: number,
+    newAmount?: number
+  ) {
+    await Categories.findOneAndUpdate(
+      { user_id, 'categories._id': category_id },
+      { $inc: { 'categories.$.spent': amount } },
+      { new: true }
+    ).exec();
+    if (newAmount) {
+      await Categories.findOneAndUpdate(
+        { user_id, 'categories._id': category_id },
+        { $inc: { 'categories.$.spent': newAmount } },
+        { new: true }
+      ).exec();
+    }
+  };
+
+  async updateCategory (category: ICategoryModel, user_id: string): Promise<ICategoryModel> {
+    const updatedDoc = await Categories.findOneAndUpdate(
+      { user_id, 'categories._id': category._id },
+      { $set: {
+        'categories.$': { ...category },
+      } },
+      { new: true }
+    ).select('categories').exec();
+
+    if (!updatedDoc) {
+      throw new ClientError(404, 'Category not found');
+    }
+
+    const errors = updatedDoc.validateSync();
+    if (errors) {
+      throw new ClientError(500, errors.message);
+    }
+
+    const updatedCategory = updatedDoc.categories.find((c) => c._id.toString() === category._id.toString());
+    if (!updatedCategory) {
+      throw new ClientError(404, 'Updated category not found');
+    }
+
+    await cacheService.del(`categories:${user_id}`);
+    return updatedCategory;
+  };
+
+  async removeCategory (category_id: string, user_id: string): Promise<void> {
+    await Categories.findOneAndUpdate(
+      { user_id },
+      { $pull: { categories: { _id: category_id } } },
+      { new: true }
+    ).exec();
+
+    await cacheService.del(`categories:${user_id}`);
+  };
+};
+
+const categoriesLogic = new CategoriesLogic();
+export default categoriesLogic;
