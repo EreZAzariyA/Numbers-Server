@@ -1,11 +1,11 @@
 import { Worker, Job } from 'bullmq';
-import { redisConnection } from '../queues';
+import { getRedisConnection } from '../queues';
 import { recomputePatterns } from '../bll/recurring/pattern-service';
 import cacheService from '../utils/cache-service';
 import { socketIo } from '../dal/socket';
 import config from '../utils/config';
 
-export interface PatternRecomputeJobData {
+interface PatternRecomputeJobData {
   user_id: string;
 }
 
@@ -29,8 +29,8 @@ const processPatternRecompute = async (job: Job<PatternRecomputeJobData>): Promi
 
 export const startPatternRecomputeWorker = () => {
   const worker = new Worker('pattern-recompute', processPatternRecompute, {
-    connection: redisConnection,
-    concurrency: 2,
+    connection: getRedisConnection(),
+    concurrency: config.workers.patternRecomputeConcurrency,
   });
 
   worker.on('completed', (job) => {

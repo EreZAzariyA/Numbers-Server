@@ -1,19 +1,33 @@
-import { TransactionStatuses, TransactionTypes } from 'israeli-bank-scrapers-for-e.a-servers/lib/transactions';
+import { TransactionTypes } from 'israeli-bank-scrapers-for-e.a-servers/lib/transactions';
 import { Transactions, CardTransactions, RecurringPatterns } from '../../collections';
+import { fetchCompletedTransactions } from '../shared/transaction-queries';
 import { IRecurringPatternModel } from '../../models/recurring-pattern-model';
-import { RecurringGroup, PatternClass, Frequency, PatternAnchor } from '../../utils/types';
-import { toDateStr, addDays } from '../../utils/date-helpers';
+import { RecurringGroup, PatternClass } from '../../utils/types';
+import { addDays } from '../../utils/date-helpers';
 import { isCardProviderCompany } from '../../utils/helpers';
 import { normalize } from './normalization';
 import { buildMerchantKey, agreesOn } from './merchant-key';
-import { clusterAmounts, AmountCluster } from './amount-clustering';
-import { detectFrequency, nextOccurrence, FrequencyResult } from './frequency-detection';
+import { clusterAmounts } from './amount-clustering';
+import { detectFrequency, nextOccurrence, nextUpcomingOccurrence, FrequencyResult, MIN_RECURRING_OCCURRENCES } from './frequency-detection';
 import { classify } from './classifier';
 import { computeConfidence } from './confidence';
+import { buildSettlementTreatmentMap, classifySettlement } from '../../utils/settlement-detection';
 import config from '../../utils/config';
+import {
+  getCardLast4,
+  getCounterparty,
+  getEventDate,
+  getMcc,
+  getMerchantId,
+  getPostingDate,
+  getProviderCategoryName,
+  getSemanticType,
+  getTransactionAmount,
+} from '../../utils/transaction-semantics';
 
 // Maximum tx IDs stored per pattern for traceability.
 const MAX_OCCURRENCE_TX_IDS = 24;
+const PATTERN_KEY_PREFIX_RE = /^(bank|card):(income|expense):/;
 
 type PersistedRecurringSourceTransaction = {
   _id: { toString(): string };
@@ -35,44 +49,54 @@ export const recomputePatterns = async (user_id: string): Promise<void> => {
   since.setMonth(since.getMonth() - 12);
   const sinceStr = since.toISOString().slice(0, 10);
 
-  const [regularTxns, cardTxns] = await Promise.all([
-    Transactions.find({ user_id, status: TransactionStatuses.Completed, date: { $gte: sinceStr } }).lean().exec(),
-    CardTransactions.find({ user_id, status: TransactionStatuses.Completed, date: { $gte: sinceStr } }).lean().exec(),
-  ]);
+  const { regularTxns, cardTxns } = await fetchCompletedTransactions(user_id, {
+    eventDate: { $gte: sinceStr },
+  });
 
   // Prepare flat list with merchantKey.
+  // Settlement rows should never be promoted into recurring spend patterns.
+  const hasCardData = cardTxns.length > 0;
+  const settlementTreatments = buildSettlementTreatmentMap(regularTxns, cardTxns);
+
   const allTxs = [...regularTxns, ...cardTxns].map((t: any) => ({
     _id: t._id.toString(),
-    date: toDateStr(t.date),
-    processedDate: toDateStr(t.processedDate ?? t.date),
-    amount: t.amount ?? t.chargedAmount ?? 0,
+    eventDate: getEventDate(t),
+    postingDate: getPostingDate(t),
+    amount: getTransactionAmount(t),
     originalAmount: t.originalAmount,
     originalCurrency: t.originalCurrency,
     chargedAmount: t.chargedAmount,
     description: t.description ?? '',
     memo: t.memo ?? '',
-    categoryDescription: t.categoryDescription ?? '',
-    channelName: t.channelName ?? '',
-    channel: t.channel ?? '',
+    providerCategoryName: getProviderCategoryName(t),
+    counterparty: getCounterparty(t),
     companyId: t.companyId ?? '',
     category_id: t.category_id?.toString() ?? '',
     rawTransaction: t.rawTransaction,
     type: t.type,
     installments: t.installments,
-    kind: (t.amount ?? t.chargedAmount ?? 0) >= 0 ? 'income' : 'expense' as 'income' | 'expense',
+    kind: getTransactionAmount(t) >= 0 ? 'income' : 'expense' as 'income' | 'expense',
     source: isCardProviderCompany(t.companyId) ? 'card' : 'bank' as 'bank' | 'card',
+    merchantId: getMerchantId(t),
+    mcc: getMcc(t),
+    cardLast4: getCardLast4(t),
+    semanticType: getSemanticType(t),
     merchantKey: '',
-  })).filter((t) => Math.abs(t.amount) > 0);
+  })).filter((t) =>
+    Math.abs(t.amount) > 0 &&
+    (settlementTreatments.get(t._id) ?? classifySettlement(t.description, hasCardData)) === 'normal'
+  );
 
   // Compute merchant keys.
   for (const tx of allTxs) {
     tx.merchantKey = buildMerchantKey(tx);
   }
 
-  // Group by (kind, merchantKey) with agreesOn corroboration.
+  // Group by (source, kind, merchantKey) with agreesOn corroboration.
+  // Including source prevents the same charge from merging across bank and card collections.
   const groupMap = new Map<string, typeof allTxs>();
   for (const tx of allTxs) {
-    const groupKey = `${tx.kind}:${tx.merchantKey}`;
+    const groupKey = `${tx.source}:${tx.kind}:${tx.merchantKey}`;
     if (!groupMap.has(groupKey)) {
       groupMap.set(groupKey, [tx]);
       continue;
@@ -99,18 +123,20 @@ export const recomputePatterns = async (user_id: string): Promise<void> => {
   const upsertOps: any[] = [];
 
   for (const [, txGroup] of groupMap) {
-    if (txGroup.length < 2) continue;
+    if (txGroup.length < MIN_RECURRING_OCCURRENCES) continue;
 
     // Amount clustering within the group.
     const clusters = clusterAmounts(txGroup);
 
     for (const cluster of clusters) {
       const clusterTxs = cluster.txIndices.map((i) => txGroup[i]);
-      const months = new Set(clusterTxs.map((t) => t.processedDate.slice(0, 7)));
+      if (clusterTxs.length < MIN_RECURRING_OCCURRENCES) continue;
+      const months = new Set(clusterTxs.map((t) => t.postingDate.slice(0, 7)));
       if (months.size < 2) continue;
 
-      const dates = clusterTxs.map((t) => t.processedDate);
+      const dates = clusterTxs.map((t) => t.postingDate);
       const freqResult: FrequencyResult = detectFrequency(dates);
+      if (freqResult.freq === 'unknown' || freqResult.freq === 'irregular') continue;
 
       // Check for installment plan.
       const installmentTxs = clusterTxs.filter(
@@ -119,7 +145,7 @@ export const recomputePatterns = async (user_id: string): Promise<void> => {
       let installmentPlan: IRecurringPatternModel['installmentPlan'] = null;
       if (installmentTxs.length > 0) {
         const latest = installmentTxs.sort(
-          (a, b) => b.processedDate.localeCompare(a.processedDate)
+          (a, b) => b.postingDate.localeCompare(a.postingDate)
         )[0];
         const total = latest.installments?.total ?? 0;
         const current = latest.installments?.number ?? 0;
@@ -129,12 +155,12 @@ export const recomputePatterns = async (user_id: string): Promise<void> => {
           totalPayments: total,
           monthlyAmount: cluster.mean,
           expectedLastPaymentDate: remaining > 0
-            ? nextOccurrence(latest.processedDate, 'monthly', freqResult.anchor)
-            : latest.processedDate,
+            ? nextOccurrence(latest.postingDate, 'monthly', freqResult.anchor)
+            : latest.postingDate,
         };
         // Recalculate expected last for remaining months.
         if (remaining > 1) {
-          let d = latest.processedDate;
+          let d = latest.postingDate;
           for (let i = 0; i < remaining; i++) {
             d = nextOccurrence(d, 'monthly', freqResult.anchor);
           }
@@ -150,14 +176,14 @@ export const recomputePatterns = async (user_id: string): Promise<void> => {
       const signals = {
         companyIds: [...new Set(clusterTxs.map((t) => t.companyId).filter(Boolean))],
         categoryIds: [...new Set(clusterTxs.map((t) => t.category_id).filter(Boolean))],
-        channels: [...new Set(clusterTxs.map((t) => t.channel || t.channelName).filter(Boolean))],
+        channels: [...new Set(clusterTxs.map((t) => t.counterparty).filter(Boolean))],
         descriptionVariants: [...new Set(clusterTxs.map((t) => t.description).filter(Boolean))].slice(0, 10),
         memoVariants: [...new Set(clusterTxs.map((t) => t.memo).filter(Boolean))].slice(0, 10),
       };
 
       const kind = clusterTxs[0].kind;
-      const merchantKey = clusterTxs[0].merchantKey;
       const source = clusterTxs[0].source;
+      const patternKey = `${source}:${kind}:${clusterTxs[0].merchantKey}`;
 
       const classification: PatternClass = classify({
         kind,
@@ -165,15 +191,15 @@ export const recomputePatterns = async (user_id: string): Promise<void> => {
         stability: freqResult.stability,
         amountStability,
         installmentTotal: installmentPlan?.totalPayments,
-        channel: signals.channels[0],
+        counterparty: signals.channels[0],
         occurrences: clusterTxs.length,
-        categoryDescription: clusterTxs[0].categoryDescription,
+        providerCategoryName: clusterTxs[0].providerCategoryName,
       });
 
       // Count missed cycles in last 6 expected periods.
       const missedInLast6Cycles = computeMissedCycles(dates, freqResult, 6);
 
-      const userOverride = overrideByKey.get(merchantKey) ?? null;
+      const userOverride = overrideByKey.get(patternKey) ?? null;
 
       const confidence = computeConfidence({
         occurrences: clusterTxs.length,
@@ -192,14 +218,14 @@ export const recomputePatterns = async (user_id: string): Promise<void> => {
         occurrences: clusterTxs.length,
         missedInLast6Cycles,
         occurrenceTxIds: clusterTxs
-          .sort((a, b) => b.processedDate.localeCompare(a.processedDate))
+          .sort((a, b) => b.postingDate.localeCompare(a.postingDate))
           .slice(0, MAX_OCCURRENCE_TX_IDS)
           .map((t) => t._id),
       };
 
       upsertOps.push({
         updateOne: {
-          filter: { user_id, merchantKey },
+          filter: { user_id, merchantKey: patternKey },
           update: {
             $set: {
               source,
@@ -226,7 +252,7 @@ export const recomputePatterns = async (user_id: string): Promise<void> => {
             },
             $setOnInsert: {
               user_id,
-              merchantKey,
+              merchantKey: patternKey,
               ...(userOverride ? { userOverride } : {}),
             },
           },
@@ -271,10 +297,22 @@ export const getPatterns = async (user_id: string): Promise<IRecurringPatternMod
  * so the existing FE contract stays unbroken.
  */
 export const getRecurringGroups = async (user_id: string): Promise<RecurringGroup[]> => {
-  const patterns = await getPatterns(user_id);
+  let patterns = await getPatterns(user_id);
+  if (patterns.some((p) => !PATTERN_KEY_PREFIX_RE.test(p.merchantKey))) {
+    await recomputePatterns(user_id);
+    patterns = await getPatterns(user_id);
+  }
   const activePatterns = patterns.filter((p) => !(p.userOverride?.disabled));
+  const recurringPatterns = activePatterns.filter((p) => {
+    const effectiveFrequency = p.userOverride?.customFrequency ?? p.frequency;
+    return p.userOverride?.confirmed || (
+      p.observed.occurrences >= MIN_RECURRING_OCCURRENCES &&
+      effectiveFrequency !== 'unknown' &&
+      effectiveFrequency !== 'irregular'
+    );
+  });
 
-  return Promise.all(activePatterns.map((pattern) => patternToRecurringGroup(pattern)));
+  return Promise.all(recurringPatterns.map((pattern) => patternToRecurringGroup(pattern)));
 };
 
 const hydrateRecurringTransactionItems = async (p: IRecurringPatternModel) => {
@@ -305,17 +343,24 @@ const hydrateRecurringTransactionItems = async (p: IRecurringPatternModel) => {
       return items;
     }
 
-    const amount = transaction.amount ?? transaction.chargedAmount ?? 0;
-    const processedDateSource = transaction.processedDate || transaction.date;
+    const amount = getTransactionAmount(transaction);
+    const eventDate = getEventDate(transaction);
+    const postingDate = getPostingDate(transaction);
 
     items.push({
       _id: transaction._id.toString(),
-      date: transaction.date ? toDateStr(transaction.date) : '',
-      processedDate: processedDateSource ? toDateStr(processedDateSource) : '',
+      eventDate,
+      postingDate,
       amount,
       description: transaction.description ?? p.signals.descriptionVariants[0] ?? '',
       companyId: transaction.companyId ?? p.signals.companyIds[0] ?? '',
       kind: amount >= 0 ? 'income' : 'expense',
+      merchantId: getMerchantId(transaction),
+      mcc: getMcc(transaction),
+      counterparty: getCounterparty(transaction),
+      providerCategoryName: getProviderCategoryName(transaction),
+      cardLast4: getCardLast4(transaction),
+      semanticType: getSemanticType(transaction),
     });
 
     return items;
@@ -324,12 +369,11 @@ const hydrateRecurringTransactionItems = async (p: IRecurringPatternModel) => {
 
 const patternToRecurringGroup = async (p: IRecurringPatternModel): Promise<RecurringGroup> => {
   const lastSeen = p.observed.lastSeen;
-  const next = p.frequency !== 'unknown'
-    ? nextOccurrence(lastSeen, p.frequency, p.anchor)
-    : null;
-
   const effectiveAmount = p.userOverride?.customAmount ?? p.amount.mean;
   const effectiveFreq = (p.userOverride?.customFrequency ?? p.frequency) as any;
+  const next = effectiveFreq !== 'unknown' && effectiveFreq !== 'irregular'
+    ? nextUpcomingOccurrence(lastSeen, effectiveFreq, p.anchor)
+    : null;
   const effectiveClass = (p.userOverride?.customClassification ?? p.classification) as PatternClass;
   const transactions = await hydrateRecurringTransactionItems(p);
 

@@ -6,6 +6,8 @@ import { createServer } from "http";
 import config from "./utils/config";
 import { connectToMongoDB, connectRedis } from "./dal";
 import { errorsHandler, verifyToken, globalLimiter, authLimiter } from "./middlewares";
+import { initializeRedisBackedRateLimiters } from "./middlewares/rate-limiter";
+import healthRouter from './routes/health';
 import {
   authenticationRouter,
   bankRouter,
@@ -17,6 +19,7 @@ import {
   savingsGoalsRouter,
   financialHealthRouter,
   cashFlowRouter,
+  agentChatRouter,
 } from './routes';
 import { startScrapingWorker } from './workers/scraping-worker';
 import { startTransactionImportWorker } from './workers/transaction-import-worker';
@@ -24,10 +27,13 @@ import { startPatternRecomputeWorker } from './workers/pattern-recompute-worker'
 import { scheduleNightlyRefresh } from './workers/nightly-refresh';
 import { socketIo } from './dal/socket';
 import recurringOverridesRouter from './routes/recurring-overrides';
+import { getRuntimeSnapshot, setWorkersEnabled } from './utils/runtime-status';
+import { getRedisTarget } from './utils/connectRedis';
 
 const app = express();
 const httpServer = createServer(app);
 
+app.use(healthRouter);
 app.use(express.json({ limit: '10mb' }));
 app.use(cors({
   credentials: true,
@@ -47,6 +53,7 @@ app.use('/api/savings-goals', verifyToken, savingsGoalsRouter);
 app.use('/api/financial-health', verifyToken, financialHealthRouter);
 app.use('/api/cash-flow', verifyToken, cashFlowRouter);
 app.use('/api/recurring', verifyToken, recurringOverridesRouter);
+app.use('/api/agent', verifyToken, agentChatRouter);
 
 app.use("*", (_, res: Response) => {
   res.status(404).send('Route Not Found');
@@ -64,6 +71,10 @@ const validateConfig = (): void => {
   if (!config.secretKey) {
     throw new Error('Secret key is missing');
   }
+
+  if (!config.googleClientId) {
+    throw new Error('Google client id is missing');
+  }
 };
 
 const bootstrap = async (): Promise<void> => {
@@ -71,30 +82,45 @@ const bootstrap = async (): Promise<void> => {
     validateConfig();
 
     const collectionName = await connectToMongoDB();
-    config.log.info(`Successfully connected to: ${collectionName}`);
-
     const redisAvailable = await connectRedis();
+    let workersEnabled = false;
+
     if (redisAvailable) {
+      initializeRedisBackedRateLimiters();
       startScrapingWorker();
       startTransactionImportWorker();
       if (config.enablePatternPersistence) {
         startPatternRecomputeWorker();
       }
-      await scheduleNightlyRefresh();
-      config.log.info('BullMQ workers started');
-    } else {
-      config.log.warn('Redis is unavailable. Starting in degraded mode without background workers.');
+      if (config.workers.nightlyRefreshEnabled) {
+        await scheduleNightlyRefresh();
+      } else {
+        config.log.info('Nightly bank refresh scheduling is disabled');
+      }
+      workersEnabled = true;
     }
+    setWorkersEnabled(workersEnabled);
 
     socketIo.initSocketIo(httpServer);
     httpServer.listen(config.port);
     await once(httpServer, 'listening');
 
-    config.log.info({
+    const snapshot = getRuntimeSnapshot();
+    const redisTarget = getRedisTarget();
+    const startupDiagnostics = {
       port: config.port,
       isProduction: config.isProduction,
+      mongoName: collectionName,
+      redisTarget,
       redisAvailable,
-    }, 'Server started');
+      workersEnabled,
+      nightlyRefreshEnabled: config.workers.nightlyRefreshEnabled,
+      degradedMode: snapshot.degradedMode,
+      localRedisCommand: config.isProduction ? undefined : 'docker compose up -d redis',
+    };
+
+    const logMethod = snapshot.degradedMode ? 'warn' : 'info';
+    config.log[logMethod](startupDiagnostics, 'Server started');
   } catch (err: any) {
     config.log.error({ err: err.message }, 'Server bootstrap failed');
     process.exit(1);

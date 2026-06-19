@@ -1,11 +1,14 @@
-import { Frequency, AnchorKind, PatternAnchor } from '../../utils/types';
-import { diffDays, dayOfMonth, dayOfWeek, addDays, ymd, yearOf, monthOf, clampDayOfMonth, daysInMonth } from '../../utils/date-helpers';
+import { Frequency, PatternAnchor } from '../../utils/types';
+import { diffDays, dayOfMonth, dayOfWeek, addDays, ymd, yearOf, monthOf } from '../../utils/date-helpers';
 
 export interface FrequencyResult {
   freq: Frequency;
   anchor: PatternAnchor;
   stability: number; // 0..1
 }
+
+export const MIN_RECURRING_OCCURRENCES = 3;
+const MIN_MATCHING_GAPS = MIN_RECURRING_OCCURRENCES - 1;
 
 // Window ranges (days) for each frequency bucket.
 const WINDOWS: Record<string, [number, number]> = {
@@ -42,6 +45,22 @@ const mode = (vals: number[]): number => {
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
+const longestMatchingRun = (gaps: number[], lo: number, hi: number): number => {
+  let longest = 0;
+  let current = 0;
+
+  for (const gap of gaps) {
+    if (gap >= lo && gap <= hi) {
+      current += 1;
+      longest = Math.max(longest, current);
+    } else {
+      current = 0;
+    }
+  }
+
+  return longest;
+};
+
 /**
  * Histogram-windowed frequency classifier with DOM/DOW/businessDay anchor.
  */
@@ -52,7 +71,7 @@ export const detectFrequency = (dates: string[]): FrequencyResult => {
     stability: 0,
   };
 
-  if (dates.length < 3) return unknownResult;
+  if (dates.length < MIN_RECURRING_OCCURRENCES) return unknownResult;
 
   const sorted = [...dates].sort();
   const gaps: number[] = [];
@@ -66,18 +85,23 @@ export const detectFrequency = (dates: string[]): FrequencyResult => {
   let winnerName: string | null = null;
   let winnerHitRatio = 0;
   let winnerGaps: number[] = [];
+  let winnerLongestRun = 0;
 
   for (const [name, [lo, hi]] of Object.entries(WINDOWS)) {
     const hits = gaps.filter((g) => g >= lo && g <= hi);
     const ratio = hits.length / gaps.length;
-    if (ratio > winnerHitRatio) {
+    const longestRun = longestMatchingRun(gaps, lo, hi);
+    if (ratio > winnerHitRatio || (ratio === winnerHitRatio && longestRun > winnerLongestRun)) {
       winnerName = name;
       winnerHitRatio = ratio;
       winnerGaps = hits;
+      winnerLongestRun = longestRun;
     }
   }
 
-  if (!winnerName || winnerHitRatio < 0.6) return unknownResult;
+  if (!winnerName || winnerHitRatio < 0.6 || winnerLongestRun < MIN_MATCHING_GAPS) {
+    return unknownResult;
+  }
 
   const mean = winnerGaps.reduce((s, g) => s + g, 0) / winnerGaps.length;
   const cv = mean > 0 ? stddev(winnerGaps) / mean : 1;
@@ -160,4 +184,20 @@ export const nextOccurrence = (lastDate: string, freq: Frequency, anchor: Patter
 
   // Generic fallback.
   return addDays(lastDate, periodDays);
+};
+
+export const nextUpcomingOccurrence = (
+  lastDate: string,
+  freq: Frequency,
+  anchor: PatternAnchor,
+  referenceDate: string = new Date().toISOString().slice(0, 10),
+): string => {
+  let next = nextOccurrence(lastDate, freq, anchor);
+  let guard = 0;
+
+  while (next < referenceDate && guard++ < 240) {
+    next = nextOccurrence(next, freq, anchor);
+  }
+
+  return next;
 };

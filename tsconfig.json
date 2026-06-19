@@ -4,6 +4,7 @@
     "outDir": "build",
     "module": "CommonJS",
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "skipLibCheck": true
   }
 }

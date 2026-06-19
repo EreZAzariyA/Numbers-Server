@@ -1,5 +1,4 @@
-import { TransactionStatuses } from 'israeli-bank-scrapers-for-e.a-servers/lib/transactions';
-import { Transactions, CardTransactions, Accounts } from '../collections';
+import { Accounts } from '../collections';
 import { detectRecurringTransactions } from './transactions';
 import {
   CashFlowProjectionResponse,
@@ -7,18 +6,20 @@ import {
   SettlementSummary,
 } from '../utils/types';
 import cacheService from '../utils/cache-service';
-import { toDateStr, addDays, diffDays } from '../utils/date-helpers';
+import { toDateStr, addDays, diffDays, daysInMonth, monthBounds } from '../utils/date-helpers';
+import { round2, sumIncomeExpense } from '../utils/money';
 import { normalize } from './recurring/normalization';
 import { isCardProviderCompany } from '../utils/helpers';
+import { classifySettlement } from '../utils/settlement-detection';
+import { getEventDate, getPostingDate, getTransactionAmount, getTransactionTextSource } from '../utils/transaction-semantics';
+import { fetchCompletedTransactions } from './shared/transaction-queries';
 
-const getCurrentMonthActualFilter = (user_id: string, currentMonthStart: string, todayStr: string) => ({
-  user_id,
-  status: TransactionStatuses.Completed,
+const getCurrentMonthActualFilter = (currentMonthStart: string, todayStr: string) => ({
   $or: [
-    { processedDate: { $gte: currentMonthStart, $lte: todayStr } },
-    { processedDate: { $exists: false }, date: { $gte: currentMonthStart, $lte: todayStr } },
-    { processedDate: null, date: { $gte: currentMonthStart, $lte: todayStr } },
-    { processedDate: '', date: { $gte: currentMonthStart, $lte: todayStr } },
+    { postingDate: { $gte: currentMonthStart, $lte: todayStr } },
+    { postingDate: { $exists: false }, eventDate: { $gte: currentMonthStart, $lte: todayStr } },
+    { postingDate: null, eventDate: { $gte: currentMonthStart, $lte: todayStr } },
+    { postingDate: '', eventDate: { $gte: currentMonthStart, $lte: todayStr } },
   ],
 });
 
@@ -37,6 +38,15 @@ type GeneratedProjectedEvent = ProjectedEvent & {
   tolerance: number;          // max days the event is allowed to slip before we call it 'missed'
   companyId?: string;
 };
+
+// Strip the internal-only generation fields back down to a public ProjectedEvent.
+const toProjectedEvent = ({
+  normalizedDescription: _normalizedDescription,
+  frequency: _frequency,
+  tolerance: _tolerance,
+  companyId: _companyId,
+  ...event
+}: GeneratedProjectedEvent): ProjectedEvent => event;
 
 // Amount tolerance: within 15% of projected amount counts as "the same event".
 // Wider than frequency-based matching but tight enough that a gift-card purchase
@@ -83,41 +93,40 @@ export const calculateCashFlowProjection = async (
   if (cached) return cached;
 
   const now = new Date();
-  const currentMonthStr = now.toISOString().slice(0, 7); // "YYYY-MM"
-  const currentMonthStart = `${currentMonthStr}-01`;
+  const { start: currentMonthStart, end: monthEnd } = monthBounds(now);
   const todayStr = toDateStr(now);
-  const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const totalDays = daysInMonth(now.getFullYear(), now.getMonth());
   const daysRemaining = totalDays - now.getDate();
-  const monthEnd = `${currentMonthStr}-${String(totalDays).padStart(2, '0')}`;
 
   // --- Current month actuals ---
-  const [regularTxns, cardTxns] = await Promise.all([
-    Transactions.find(getCurrentMonthActualFilter(user_id, currentMonthStart, todayStr)).lean().exec(),
-    CardTransactions.find(getCurrentMonthActualFilter(user_id, currentMonthStart, todayStr)).lean().exec(),
-  ]);
-
-  const allCurrent: CurrentTransactionEvent[] = [...regularTxns, ...cardTxns].map((t: any) => {
-    const amount = t.amount ?? t.chargedAmount ?? 0;
-    // IMPORTANT: mirror the fallback chain used by detection so memo-keyed
-    // patterns can actually cancel here too.
-    const descSource = t.description || t.memo || t.categoryDescription || t.channelName || '';
-    return {
-      amount,
-      absAmount: Math.abs(amount),
-      kind: amount >= 0 ? 'income' : 'expense',
-      normalizedDescription: normalize(descSource),
-      effectiveDate: toDateStr(t.processedDate ?? t.date),
-      companyId: t.companyId ?? '',
-    };
-  });
-
-  const incomeToDate = allCurrent
-    .filter(t => t.amount > 0)
-    .reduce((s, t) => s + t.amount, 0);
-  const expensesToDate = Math.abs(
-    allCurrent.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0)
+  const { regularTxns, cardTxns } = await fetchCompletedTransactions(
+    user_id,
+    getCurrentMonthActualFilter(currentMonthStart, todayStr),
   );
-  const netToDate = incomeToDate - expensesToDate;
+
+  // Exclude credit-card settlement rows when granular card data exists.
+  const hasCardData = cardTxns.length > 0;
+
+  const allCurrent: CurrentTransactionEvent[] = [...regularTxns, ...cardTxns]
+    .filter((t: any) => {
+      const desc = getTransactionTextSource(t);
+      return classifySettlement(desc, hasCardData) !== 'exclude';
+    })
+    .map((t: any) => {
+      const amount = getTransactionAmount(t);
+      const descSource = getTransactionTextSource(t);
+      return {
+        amount,
+        absAmount: Math.abs(amount),
+        kind: amount >= 0 ? 'income' : 'expense',
+        normalizedDescription: normalize(descSource),
+        effectiveDate: getPostingDate(t) || getEventDate(t),
+        companyId: t.companyId ?? '',
+      };
+    });
+
+  const { income: incomeToDate, expenses: expensesToDate, net: netToDate } =
+    sumIncomeExpense(allCurrent.map((t) => t.amount));
 
   // --- Bank balance (main account) ---
   const accountDoc = await Accounts.findOne({ user_id }).lean().exec();
@@ -215,15 +224,9 @@ export const calculateCashFlowProjection = async (
 
   const missedEvents: ProjectedEvent[] = generatedEvents
     .filter((e) => e.status === 'missed')
-    .map(({ normalizedDescription: _n, frequency: _f, tolerance: _t, companyId: _c, ...rest }) => rest);
+    .map(toProjectedEvent);
 
-  const expectedEvents: ProjectedEvent[] = generatedEvents.map(({
-    normalizedDescription: _normalizedDescription,
-    frequency: _frequency,
-    tolerance: _tolerance,
-    companyId: _companyId,
-    ...event
-  }) => event);
+  const expectedEvents: ProjectedEvent[] = generatedEvents.map(toProjectedEvent);
 
   // --- Projection ---
   // Pending = events still expected this month AND not already late-missed.
@@ -257,17 +260,17 @@ export const calculateCashFlowProjection = async (
   });
 
   const settlement: SettlementSummary = {
-    bankPending: Math.round(bankPendingAgg.expense * 100) / 100,
-    cardPending: Math.round(cardPendingAgg.expense * 100) / 100,
+    bankPending: round2(bankPendingAgg.expense),
+    cardPending: round2(cardPendingAgg.expense),
     cardSettlementByDate: Object.fromEntries(
-      Object.entries(cardPendingAgg.byDate).map(([k, v]) => [k, Math.round(v * 100) / 100])
+      Object.entries(cardPendingAgg.byDate).map(([k, v]) => [k, round2(v)])
     ),
   };
 
   const projectedMonthNet = netToDate + pendingIncome - pendingExpenses;
   const projectedEndBalance =
     currentBalance !== null
-      ? Math.round((currentBalance + (projectedMonthNet - netToDate)) * 100) / 100
+      ? round2(currentBalance + (projectedMonthNet - netToDate))
       : null;
 
   // --- Risk level ---
@@ -285,11 +288,11 @@ export const calculateCashFlowProjection = async (
   }
 
   const response: CashFlowProjectionResponse = {
-    incomeToDate: Math.round(incomeToDate * 100) / 100,
-    expensesToDate: Math.round(expensesToDate * 100) / 100,
-    netToDate: Math.round(netToDate * 100) / 100,
+    incomeToDate: round2(incomeToDate),
+    expensesToDate: round2(expensesToDate),
+    netToDate: round2(netToDate),
     expectedEvents,
-    projectedMonthNet: Math.round(projectedMonthNet * 100) / 100,
+    projectedMonthNet: round2(projectedMonthNet),
     projectedEndBalance,
     currentBalance,
     riskLevel,

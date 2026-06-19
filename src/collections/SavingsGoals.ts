@@ -1,7 +1,7 @@
 import { Document, model, Schema } from "mongoose";
 import { ISavingsGoalModel, SavingsGoalSchema } from "../models/savings-goal-model";
 
-export interface ISavingsGoalsCollection extends Document {
+interface ISavingsGoalsCollection extends Document {
   user_id: Schema.Types.ObjectId;
   goals: ISavingsGoalModel[];
 }

@@ -4,6 +4,9 @@ import { Transactions } from './Transactions';
 import { CardTransactions } from './Card-Transactions';
 import { SavingsGoals } from './SavingsGoals';
 import { RecurringPatterns } from './RecurringPatterns';
+import { ChatHistory } from './ChatHistory';
+import { AgentPendingActions } from './AgentPendingActions';
+import { UserAiSettings } from './UserAiSettings';
 
 export {
   Accounts,
@@ -12,4 +15,7 @@ export {
   CardTransactions,
   SavingsGoals,
   RecurringPatterns,
+  ChatHistory,
+  AgentPendingActions,
+  UserAiSettings,
 };

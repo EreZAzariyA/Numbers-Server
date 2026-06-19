@@ -1,10 +1,11 @@
 import { Worker, Job } from 'bullmq';
 import { Transaction } from 'israeli-bank-scrapers-for-e.a-servers/lib/transactions';
-import { redisConnection } from '../queues';
+import { getRedisConnection } from '../queues';
 import bankLogic from '../bll/banks';
 import { socketIo } from '../dal/socket';
+import config from '../utils/config';
 
-export interface TransactionImportJobData {
+interface TransactionImportJobData {
   user_id: string;
   transactions: Transaction[];
   companyId: string;
@@ -34,8 +35,8 @@ const processTransactionImport = async (job: Job<TransactionImportJobData>) => {
 
 export const startTransactionImportWorker = () => {
   const worker = new Worker('transaction-import', processTransactionImport, {
-    connection: redisConnection,
-    concurrency: 3,
+    connection: getRedisConnection(),
+    concurrency: config.workers.transactionImportConcurrency,
   });
 
   worker.on('completed', (job) => {

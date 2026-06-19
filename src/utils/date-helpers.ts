@@ -1,6 +1,28 @@
+const LEDGER_TIME_ZONE = 'Asia/Jerusalem';
+
+const formatDateInTimeZone = (date: Date): string => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: LEDGER_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  if (!year || !month || !day) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  return `${year}-${month}-${day}`;
+};
+
 export const toDateStr = (d: Date | string): string => {
   const dt = d instanceof Date ? d : new Date(d);
-  return dt.toISOString().slice(0, 10);
+  if (Number.isNaN(dt.getTime())) return '';
+  return formatDateInTimeZone(dt);
 };
 
 export const addDays = (dateStr: string, days: number): string => {
@@ -29,3 +51,18 @@ export const dayOfMonth = (dateStr: string): number => new Date(dateStr).getUTCD
 export const dayOfWeek = (dateStr: string): number => new Date(dateStr).getUTCDay();
 export const monthOf = (dateStr: string): number => new Date(dateStr).getUTCMonth();
 export const yearOf = (dateStr: string): number => new Date(dateStr).getUTCFullYear();
+
+export type MonthBounds = { monthStr: string; start: string; end: string };
+
+// Month identifier "YYYY-MM" plus first/last day strings for the given date's
+// month. monthStr is UTC-based (matching existing call sites); the end day uses
+// the local-time month, as the previous inline code did.
+export const monthBounds = (date: Date): MonthBounds => {
+  const monthStr = date.toISOString().slice(0, 7);
+  const lastDay = daysInMonth(date.getFullYear(), date.getMonth());
+  return {
+    monthStr,
+    start: `${monthStr}-01`,
+    end: `${monthStr}-${String(lastDay).padStart(2, '0')}`,
+  };
+};

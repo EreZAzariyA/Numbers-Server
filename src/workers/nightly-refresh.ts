@@ -1,22 +1,31 @@
 import { Worker, Job, Queue } from 'bullmq';
-import { redisConnection, scrapingQueue, enqueuePatternRecompute } from '../queues';
+import { getRedisConnection, getScrapingQueue, enqueuePatternRecompute } from '../queues';
 import { Accounts } from '../collections';
-import jwt from '../utils/jwt';
+import { decryptBankCredentials } from '../utils/bank-credentials';
 import { ScrapingJobData } from './scraping-worker';
 import config from '../utils/config';
 
-const nightlyQueue = new Queue('nightly-refresh', {
-  connection: redisConnection,
-  defaultJobOptions: {
-    removeOnComplete: { age: 86400 },
-    removeOnFail: { age: 86400 * 7 },
-  },
-});
+let nightlyQueue: Queue | null = null;
+
+const getNightlyQueue = (): Queue => {
+  if (!nightlyQueue) {
+    nightlyQueue = new Queue('nightly-refresh', {
+      connection: getRedisConnection(),
+      defaultJobOptions: {
+        removeOnComplete: { age: config.queue.nightlyRemoveOnCompleteAgeSeconds },
+        removeOnFail: { age: config.queue.nightlyRemoveOnFailAgeSeconds },
+      },
+    });
+  }
+
+  return nightlyQueue;
+};
 
 const processNightlyRefresh = async (_job: Job): Promise<void> => {
   config.log.info('Nightly bank refresh started');
 
   const accounts = await Accounts.find({ banks: { $exists: true, $ne: [] } }).lean().exec();
+  const scrapingQueue = getScrapingQueue();
 
   let queued = 0;
   for (const account of accounts) {
@@ -24,7 +33,7 @@ const processNightlyRefresh = async (_job: Job): Promise<void> => {
       if (!bank.credentials) continue;
 
       try {
-        const decoded = await jwt.fetchBankCredentialsFromToken(bank.credentials);
+        const decoded = decryptBankCredentials(bank.credentials);
         if (!decoded) continue;
 
         const jobData: ScrapingJobData = {
@@ -69,6 +78,8 @@ const processNightlyRefresh = async (_job: Job): Promise<void> => {
 };
 
 export const scheduleNightlyRefresh = async (): Promise<Worker> => {
+  const nightlyQueue = getNightlyQueue();
+
   // Remove stale repeatable jobs from previous startups (idempotent)
   const repeatableJobs = await nightlyQueue.getRepeatableJobs();
   for (const job of repeatableJobs) {
@@ -76,11 +87,11 @@ export const scheduleNightlyRefresh = async (): Promise<Worker> => {
   }
 
   await nightlyQueue.add('nightly-refresh-trigger', {}, {
-    repeat: { pattern: '0 2 * * *' },
+    repeat: { pattern: config.workers.nightlyRefreshCron },
   });
 
   const worker = new Worker('nightly-refresh', processNightlyRefresh, {
-    connection: redisConnection,
+    connection: getRedisConnection(),
     concurrency: 1,
   });
 
@@ -92,6 +103,6 @@ export const scheduleNightlyRefresh = async (): Promise<Worker> => {
     config.log.error(`Nightly refresh job failed: ${err.message}`);
   });
 
-  config.log.info('Nightly bank refresh scheduled (daily at 02:00)');
+  config.log.info({ cron: config.workers.nightlyRefreshCron }, 'Nightly bank refresh scheduled');
   return worker;
 };

@@ -1,13 +1,20 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { TransactionStatuses } from 'israeli-bank-scrapers-for-e.a-servers/lib/transactions';
 import { SavingsGoals } from '../collections/SavingsGoals';
 import { Transactions, CardTransactions } from '../collections';
 import { ClientError, UserModel } from '../models';
-import { ISavingsGoalModel, SavingsGoalModel } from '../models/savings-goal-model';
+import { ISavingsGoalModel } from '../models/savings-goal-model';
 import { ErrorMessages } from '../utils/helpers';
 import cacheService from '../utils/cache-service';
+import { buildSavingsGoalPrompt } from '../utils/ai-prompts';
+import { generateUserInsight } from '../utils/ai-provider';
+import { buildSettlementTreatmentMap, classifySettlement } from '../utils/settlement-detection';
+import { getEventDate, getTransactionAmount, getTransactionTextSource } from '../utils/transaction-semantics';
 
 const getCacheKey = (user_id: string, language: string) => `savingsGoals:${user_id}:${language}`;
+const SAVINGS_INSIGHT_CONCURRENCY = 2;
+
+type SavingsGoalInput = Pick<ISavingsGoalModel, 'name' | 'targetAmount' | 'currentAmount' | 'targetDate'>;
+type SavingsGoalUpdateInput = SavingsGoalInput & Pick<ISavingsGoalModel, '_id'>;
 
 const getAvgMonthlySavings = async (user_id: string): Promise<number> => {
   const since = new Date();
@@ -16,17 +23,22 @@ const getAvgMonthlySavings = async (user_id: string): Promise<number> => {
   const sinceStr = since.toISOString().slice(0, 10);
 
   const [regularTxns, cardTxns] = await Promise.all([
-    Transactions.find({ user_id, status: TransactionStatuses.Completed, date: { $gte: sinceStr } }).lean().exec(),
-    CardTransactions.find({ user_id, status: TransactionStatuses.Completed, date: { $gte: sinceStr } }).lean().exec(),
+    Transactions.find({ user_id, status: TransactionStatuses.Completed, eventDate: { $gte: sinceStr } }).lean().exec(),
+    CardTransactions.find({ user_id, status: TransactionStatuses.Completed, eventDate: { $gte: sinceStr } }).lean().exec(),
   ]);
 
   const currentMonthStr = new Date().toISOString().slice(0, 7);
   const byMonth = new Map<string, number>();
+  const hasCardData = cardTxns.length > 0;
+  const settlementTreatments = buildSettlementTreatmentMap(regularTxns, cardTxns);
 
   for (const t of [...regularTxns, ...cardTxns] as any[]) {
-    const month: string = (t.date as string).slice(0, 7);
+    const month: string = getEventDate(t).slice(0, 7);
     if (month === currentMonthStr) continue;
-    const amount: number = t.amount ?? t.chargedAmount ?? 0;
+    const settlementTreatment = settlementTreatments.get(t._id?.toString?.() ?? '')
+      ?? classifySettlement(getTransactionTextSource(t), hasCardData);
+    if (settlementTreatment === 'exclude') continue;
+    const amount: number = getTransactionAmount(t);
     byMonth.set(month, (byMonth.get(month) ?? 0) + amount);
   }
 
@@ -38,43 +50,59 @@ const getAvgMonthlySavings = async (user_id: string): Promise<number> => {
 };
 
 const generateInsight = async (
+  user_id: string,
   goal: ISavingsGoalModel,
   avgMonthlySavings: number,
   language: string,
 ): Promise<string> => {
-  try {
-    if (!process.env.GEMINI_API_KEY) return '';
+  const now = new Date();
+  const target = new Date(goal.targetDate);
+  const monthsRemaining = Math.max(
+    0,
+    (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth()),
+  );
+  const remaining = goal.targetAmount - goal.currentAmount;
+  const requiredMonthly = monthsRemaining > 0 ? Math.round(remaining / monthsRemaining) : remaining;
+  const progressPct = Math.round((goal.currentAmount / goal.targetAmount) * 100);
+  const { systemInstruction, prompt } = buildSavingsGoalPrompt({
+    name: goal.name,
+    targetAmount: goal.targetAmount,
+    currentAmount: goal.currentAmount,
+    targetDate: goal.targetDate,
+    monthsRemaining,
+    remainingAmount: remaining,
+    requiredMonthly,
+    avgMonthlySavings,
+    progressPct,
+  }, language);
 
-    const now = new Date();
-    const target = new Date(goal.targetDate);
-    const monthsRemaining = Math.max(
-      0,
-      (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth()),
-    );
-    const remaining = goal.targetAmount - goal.currentAmount;
-    const requiredMonthly = monthsRemaining > 0 ? Math.round(remaining / monthsRemaining) : remaining;
-    const progressPct = Math.round((goal.currentAmount / goal.targetAmount) * 100);
+  return generateUserInsight({
+    user_id,
+    context: 'savings-goals',
+    prompt,
+    systemInstruction,
+    maxOutputTokens: 150,
+  });
+};
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      generationConfig: { maxOutputTokens: 150 },
-      systemInstruction: `You are a personal finance assistant. Respond in ${language === 'he' ? 'Hebrew' : 'English'}. Be concise, encouraging, and practical.`,
-    });
+const mapWithConcurrency = async <T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> => {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
 
-    const prompt = `Savings goal: "${goal.name}"
-- Target: ₪${goal.targetAmount}, Saved: ₪${goal.currentAmount} (${progressPct}%)
-- Deadline: ${goal.targetDate} (${monthsRemaining} months away)
-- Required monthly savings: ₪${requiredMonthly}
-- User's avg monthly net savings: ₪${avgMonthlySavings}
-Write exactly 2 sentences: (1) whether they are on track, (2) one specific actionable tip.`;
+  const runWorker = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await mapper(items[currentIndex]);
+    }
+  };
 
-    const result = await model.generateContent(prompt);
-    return result.response.text().trim();
-  } catch (err: any) {
-    console.error('Gemini savings insight error:', err?.message ?? err);
-    return '';
-  }
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
 };
 
 class SavingsGoalsLogic {
@@ -96,41 +124,47 @@ class SavingsGoalsLogic {
 
     const avgMonthlySavings = await getAvgMonthlySavings(user_id);
 
-    const enriched = await Promise.all(
-      doc.goals.map(async (goal) => {
-        const insight = await generateInsight(goal.toObject() as ISavingsGoalModel, avgMonthlySavings, language);
-        return { ...goal.toObject(), aiInsight: insight } as ISavingsGoalModel;
-      }),
+    const enriched = await mapWithConcurrency(
+      doc.goals,
+      SAVINGS_INSIGHT_CONCURRENCY,
+      async (goal) => {
+        const goalData = goal.toObject() as ISavingsGoalModel;
+        const insight = await generateInsight(user_id, goalData, avgMonthlySavings, language);
+        return { ...goalData, aiInsight: insight } as ISavingsGoalModel;
+      },
     );
 
     await cacheService.set(cacheKey, enriched, 300);
     return enriched;
   }
 
-  async addGoal(user_id: string, goal: ISavingsGoalModel): Promise<ISavingsGoalModel> {
+  async addGoal(user_id: string, goal: SavingsGoalInput): Promise<ISavingsGoalModel> {
     await UserModel.findById(user_id).catch(() => {
       throw new ClientError(400, ErrorMessages.USER_NOT_FOUND);
     });
 
-    const newGoal = new SavingsGoalModel({
+    const newGoal = {
       name: goal.name,
       targetAmount: goal.targetAmount,
       currentAmount: goal.currentAmount ?? 0,
       targetDate: goal.targetDate,
       aiInsight: '',
-    });
+    };
 
-    await SavingsGoals.findOneAndUpdate(
+    const updatedDoc = await SavingsGoals.findOneAndUpdate(
       { user_id },
       { $push: { goals: newGoal } },
-      { new: true, upsert: true },
-    ).exec();
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    ).select('goals').exec();
+
+    const addedGoal = updatedDoc?.goals?.[updatedDoc.goals.length - 1];
+    if (!addedGoal) throw new ClientError(500, 'Failed to create savings goal');
 
     await this.invalidateCache(user_id);
-    return newGoal;
+    return addedGoal.toObject() as ISavingsGoalModel;
   }
 
-  async updateGoal(user_id: string, goal: ISavingsGoalModel): Promise<ISavingsGoalModel> {
+  async updateGoal(user_id: string, goal: SavingsGoalUpdateInput): Promise<ISavingsGoalModel> {
     const updatedDoc = await SavingsGoals.findOneAndUpdate(
       { user_id, 'goals._id': goal._id },
       { $set: { 'goals.$': { ...goal, aiInsight: '' } } },

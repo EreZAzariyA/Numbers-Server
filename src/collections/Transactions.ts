@@ -1,17 +1,39 @@
 import { Document, model, Schema, Types } from "mongoose";
-import { Transaction, TransactionStatuses, TransactionTypes } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
+import { TransactionStatuses, TransactionTypes } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 
-export interface ITransactionModel extends Transaction, Document {
+export interface ITransactionModel extends Document {
   user_id: Types.ObjectId;
   type: TransactionTypes;
-  date: string;
-  processedDate: string;
+  eventDate: string;
+  postingDate: string;
+  billingDate?: string;
+  date?: string;
+  processedDate?: string;
   identifier: number | string;
   category_id: Types.ObjectId;
   description: string;
   amount: number;
   status: TransactionStatuses;
   companyId: string;
+  originalAmount?: number;
+  originalCurrency?: string;
+  chargedAmount?: number;
+  chargedCurrency?: string;
+  memo?: string;
+  installments?: { number?: number; total?: number };
+  semanticType?: string;
+  providerCategoryId?: string | number;
+  providerCategoryName?: string;
+  merchantId?: string;
+  mcc?: string | number;
+  counterparty?: string;
+  cardUniqueId?: string;
+  cardLast4?: string | number;
+  category?: string;
+  categoryDescription?: string;
+  channel?: string;
+  channelName?: string;
+  rawTransaction?: any;
 };
 
 const TransactionsSchema = new Schema<ITransactionModel>({
@@ -23,10 +45,22 @@ const TransactionsSchema = new Schema<ITransactionModel>({
     type: String,
     trim: true,
   },
-  date: {
+  eventDate: {
     type: String,
     trim: true,
     required: [true, "Date is missing"],
+  },
+  postingDate: {
+    type: String,
+    trim: true,
+  },
+  billingDate: {
+    type: String,
+    trim: true,
+  },
+  date: {
+    type: String,
+    trim: true,
   },
   processedDate: {
     type: String,
@@ -73,6 +107,35 @@ const TransactionsSchema = new Schema<ITransactionModel>({
   installments: {
     number: { type: Number },
     total: { type: Number },
+  },
+  semanticType: {
+    type: String,
+    trim: true,
+  },
+  providerCategoryId: {
+    type: Schema.Types.Mixed,
+  },
+  providerCategoryName: {
+    type: String,
+    trim: true,
+  },
+  merchantId: {
+    type: String,
+    trim: true,
+  },
+  mcc: {
+    type: Schema.Types.Mixed,
+  },
+  counterparty: {
+    type: String,
+    trim: true,
+  },
+  cardUniqueId: {
+    type: String,
+    trim: true,
+  },
+  cardLast4: {
+    type: Schema.Types.Mixed,
   },
   category: {
     type: String,

@@ -1,8 +1,21 @@
 import express, { NextFunction, Request, Response } from 'express';
 import { overridePattern, getPatterns } from '../bll/recurring/pattern-service';
+import { getUpcomingRenewals, DEFAULT_RENEWAL_WINDOW_DAYS } from '../bll/recurring/renewals';
 import cacheService from '../utils/cache-service';
 
 const router = express.Router();
+
+/** GET /api/recurring/:user_id/upcoming?withinDays=7 — subscriptions/bills renewing soon. */
+router.get('/:user_id/upcoming', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { user_id } = req.params;
+    const withinDays = Number(req.query.withinDays) || DEFAULT_RENEWAL_WINDOW_DAYS;
+    const renewals = await getUpcomingRenewals(user_id, withinDays);
+    res.status(200).json(renewals);
+  } catch (err) {
+    next(err);
+  }
+});
 
 /** GET /api/recurring/:user_id — list all persisted patterns. */
 router.get('/:user_id', async (req: Request, res: Response, next: NextFunction) => {

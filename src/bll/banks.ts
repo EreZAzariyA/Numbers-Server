@@ -1,19 +1,63 @@
-import { PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
+import { CardBlockType, PastOrFutureDebitType, Transaction, TransactionsAccount } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { categoriesLogic, transactionsLogic } from ".";
 import { CardTransactions, Accounts, Transactions } from "../collections";
 import { ClientError, UserModel, IBankModal, ITransactionModel, ICategoryModel, IAccountModel, ICardTransactionModel } from "../models";
 import { ErrorMessages, getFutureDebitDate, isArrayAndNotEmpty, isCardProviderCompany, SupportedCompanies, UserBankCredentials } from "../utils/helpers";
-import jwt from "../utils/jwt";
+import { decryptBankCredentials, encryptBankCredentials } from "../utils/bank-credentials";
 import { getBankData, insertBankAccount } from "../utils/bank-utils";
-import cacheService from "../utils/cache-service";
 import { invalidateUserDerivedCaches } from "./transactions";
 import config from "../utils/config";
+import { isRedisAvailable } from "../utils/connectRedis";
+import {
+  getCardLast4,
+  getEventDate,
+  getPostingDate,
+  getProviderCategoryName,
+  getSemanticType,
+} from "../utils/transaction-semantics";
+
+type ImportedBankTransaction = Transaction & {
+  billingDate?: string;
+  providerCategoryId?: string | number;
+  providerCategoryName?: string;
+  merchantId?: string;
+  mcc?: string | number;
+  counterparty?: string;
+  cardUniqueId?: string;
+  cardLast4?: string | number;
+  semanticType?: string;
+};
 
 interface RefreshedBankAccountDetails {
   bank: IBankModal; // full inserted bank - no account.txns or cardsBlock.txns
   account: TransactionsAccount; // scrapper account - account.txns + cardsBlock.txns
-  importedTransactions?: ITransactionModel[];
+  importedTransactions?: Array<ITransactionModel | ICardTransactionModel>;
   importedCategories?: ICategoryModel[];
+};
+
+type CardBlockWithTransactions = CardBlockType & {
+  txns: ImportedBankTransaction[];
+};
+
+interface MainAccountResponse {
+  _id?: string;
+  user_id: string;
+  banks: IBankModal[];
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return typeof error === "string" ? error : ErrorMessages.SOME_ERROR_TRY_AGAIN;
+};
+
+const isSupportedCompany = (companyId: string): boolean =>
+  Object.prototype.hasOwnProperty.call(SupportedCompanies, companyId);
+
+const hasTransactions = (card: CardBlockType): card is CardBlockWithTransactions => {
+  return Boolean(card?.txns && isArrayAndNotEmpty(card.txns));
 };
 
 class BankLogic {
@@ -21,7 +65,17 @@ class BankLogic {
     return Accounts.findOne({ user_id, ...query }).exec();
   };
 
-  fetchOneBankAccount = async (user_id: string, bank_id: string): Promise<IBankModal> => {
+  fetchMainAccountResponse = async (user_id: string): Promise<MainAccountResponse> => {
+    const mainAccount = await this.fetchMainAccount(user_id);
+
+    return {
+      ...(mainAccount?._id && { _id: mainAccount._id.toString() }),
+      user_id: mainAccount?.user_id?.toString() ?? user_id,
+      banks: mainAccount?.banks ?? [],
+    };
+  };
+
+  fetchOneBankAccount = async (user_id: string, bank_id: string): Promise<IBankModal | undefined> => {
     const mainAccount = await this.fetchMainAccount(user_id);
     return mainAccount?.banks?.find((bank) => bank._id?.toString() === bank_id);
   };
@@ -35,7 +89,7 @@ class BankLogic {
       throw new ClientError(500, ErrorMessages.USER_NOT_FOUND);
     }
 
-    if (!SupportedCompanies[details.companyId]) {
+    if (!isSupportedCompany(details.companyId)) {
       throw new ClientError(500, `${ErrorMessages.COMPANY_NOT_SUPPORTED} - ${details.companyId}`);
     }
 
@@ -57,7 +111,7 @@ class BankLogic {
       };
     } catch (err) {
       console.log(err);
-      throw new ClientError(500, err?.message);
+      throw new ClientError(500, getErrorMessage(err));
     }
   };
 
@@ -66,7 +120,7 @@ class BankLogic {
   user_id: string,
   newDetailsCredentials?: string
   ): Promise<Partial<RefreshedBankAccountDetails>> => {
-    const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bank_id);
+    const bankAccount = await this.fetchOneBankAccount(user_id, bank_id);
     if (!bankAccount) {
       throw new ClientError(500, 'Some error while trying to find user with this account. Please contact us');
     }
@@ -76,7 +130,7 @@ class BankLogic {
       throw new ClientError(500, 'Some error while trying to load saved credentials. Please contact us');
     }
 
-    const decodedCredentials = await jwt.fetchBankCredentialsFromToken(credentials);
+    const decodedCredentials = decryptBankCredentials(credentials);
     if (!decodedCredentials) {
       throw new ClientError(500, 'Some error while trying to load decoded credentials. Please contact us');
     }
@@ -92,34 +146,35 @@ class BankLogic {
 
     const scrapeResult = await getBankData(details);
     if (scrapeResult.errorType || scrapeResult.errorMessage) {
-      throw new ClientError(500, scrapeResult.errorMessage);
+      throw new ClientError(500, getErrorMessage(scrapeResult.errorMessage));
     }
 
     const account = scrapeResult.accounts?.[0];
     if (!account) {
       throw new ClientError(500, 'No account data returned from bank scraper');
     }
-    let insertedTransactions = [];
+    let insertedTransactions: Array<ITransactionModel | ICardTransactionModel> = [];
 
     if (account?.txns && isArrayAndNotEmpty(account.txns)) {
       try {
         const transactions = await this.importTransactions(account.txns, user_id, details.companyId);
         insertedTransactions = [...insertedTransactions, ...transactions];
       } catch (err) {
-        throw new ClientError(500, err?.message);
+        throw new ClientError(500, getErrorMessage(err));
       }
     }
 
-    if (account?.cardsPastOrFutureDebit && isArrayAndNotEmpty(account.cardsPastOrFutureDebit?.cardsBlock)) {
-      const promises = account.cardsPastOrFutureDebit.cardsBlock
-        .filter((card) => isArrayAndNotEmpty(card.txns))
+    const cardsBlocks = account.cardsPastOrFutureDebit?.cardsBlock ?? [];
+    if (isArrayAndNotEmpty(cardsBlocks)) {
+      const promises = cardsBlocks
+        .filter(hasTransactions)
         .map(async (card) => {
           if (card.cardStatusCode && card.cardStatusCode === 9) return;
           try {
             const cardTransactions = await this.importTransactions(card.txns, user_id, details.companyId);
             insertedTransactions = [...insertedTransactions, ...cardTransactions];
           } catch (error) {
-            throw new ClientError(500, error?.message || error);
+            throw new ClientError(500, getErrorMessage(error));
           }
         });
 
@@ -136,7 +191,7 @@ class BankLogic {
         updatedPastOrFutureDebits.sort((a, b) => (getFutureDebitDate(a.debitMonth) - getFutureDebitDate(b.debitMonth)));
         account.pastOrFutureDebits = updatedPastOrFutureDebits;
       } catch (err) {
-        throw new ClientError(500, err.message);
+        throw new ClientError(500, getErrorMessage(err));
       }
     }
 
@@ -149,43 +204,40 @@ class BankLogic {
         // todo: add importedCategories
       };
     } catch (err) {
-      throw new ClientError(500, err?.message);
+      throw new ClientError(500, getErrorMessage(err));
     }
   };
 
   updateBankAccountDetails = async (bank_id: string, user_id: string, newDetails: UserBankCredentials) => {
-    const bankAccount = await bankLogic.fetchOneBankAccount(user_id, bank_id);
+    const bankAccount = await this.fetchOneBankAccount(user_id, bank_id);
     if (!bankAccount) {
       throw new ClientError(500, ErrorMessages.USER_BANK_ACCOUNT_NOT_FOUND);
     }
 
     const credentials = bankAccount?.credentials;
     if (credentials) {
-      const decodedCredentials = await jwt.fetchBankCredentialsFromToken(credentials);
+      const decodedCredentials = decryptBankCredentials(credentials);
       if (!decodedCredentials) {
         throw new ClientError(500, ErrorMessages.DECODED_CREDENTIALS_NOT_LOADED);
       }
-
-      const oldCredentials = [];
-      oldCredentials.push(decodedCredentials);
     }
 
-    const newDetailsCredentials = jwt.createNewToken(newDetails);
+    const newDetailsCredentials = encryptBankCredentials(newDetails);
     const refreshedBankData = await this.refreshBankData(bank_id, user_id, newDetailsCredentials);
     return refreshedBankData;
   };
 
   importTransactions = async (
-    transactions: Transaction[],
+    transactions: ImportedBankTransaction[],
     user_id: string,
     companyId: string,
   ): Promise<(ITransactionModel | ICardTransactionModel)[]> => {
     let defCategory = await categoriesLogic.fetchUserCategory(user_id, 'Others');
     if (!defCategory) {
       try {
-        defCategory = await categoriesLogic.addNewCategory('Others', user_id);
+        defCategory = await categoriesLogic.addNewCategory('Others', user_id, { reuseExisting: true });
       } catch (err) {
-        throw new Error(`[bankLogic/importTransactions]: Some error while trying to add default category - ${err?.message}` );
+        throw new Error(`[bankLogic/importTransactions]: Some error while trying to add default category - ${getErrorMessage(err)}` );
       }
     }
 
@@ -197,14 +249,10 @@ class BankLogic {
     for (const originalTransaction of transactions) {
       const {
         status,
-        date,
         originalAmount,
         chargedAmount,
         description,
-        categoryDescription,
-        category,
         identifier,
-        cardNumber,
       } = originalTransaction;
       if (!identifier) continue;
 
@@ -216,18 +264,25 @@ class BankLogic {
             const trans = await transactionsLogic.updateTransactionStatus(existedTransaction, status);
             inserted.push(trans);
           } catch (err) {
-            console.log(`Some error while trying to update transaction ${existedTransaction.identifier} - ${err?.message}`);
+            console.log(`Some error while trying to update transaction ${existedTransaction.identifier} - ${getErrorMessage(err)}`);
             throw new ClientError(500, `Some error while trying to update transaction ${existedTransaction.identifier}`);
           }
         }
         continue;
       }
 
-      const originalCategory = category ?? categoryDescription;
+      const eventDate = getEventDate(originalTransaction);
+      const postingDate = getPostingDate(originalTransaction);
+      const providerCategoryName = getProviderCategoryName(originalTransaction);
+      const originalCategory = providerCategoryName;
       let originalTransactionCategory = await categoriesLogic.fetchUserCategory(user_id, originalCategory);
       if (!originalTransactionCategory?._id) {
-        if (category ?? categoryDescription) {
-          originalTransactionCategory = await categoriesLogic.addNewCategory(category ?? categoryDescription, user_id);
+        if (providerCategoryName) {
+          originalTransactionCategory = await categoriesLogic.addNewCategory(
+            providerCategoryName,
+            user_id,
+            { reuseExisting: true }
+          );
         } else {
           originalTransactionCategory = defCategory;
         }
@@ -235,25 +290,38 @@ class BankLogic {
 
       const transaction = {
         user_id,
-        date,
+        eventDate,
+        postingDate,
+        billingDate: originalTransaction.billingDate,
+        date: eventDate,
+        processedDate: postingDate,
         description,
         companyId,
         status,
         identifier,
         amount: chargedAmount ?? originalAmount,
         category_id: originalTransactionCategory._id,
+        semanticType: getSemanticType(originalTransaction),
+        providerCategoryId: originalTransaction.providerCategoryId,
+        providerCategoryName,
+        merchantId: originalTransaction.merchantId,
+        mcc: originalTransaction.mcc,
+        counterparty: originalTransaction.counterparty,
+        cardUniqueId: originalTransaction.cardUniqueId,
+        cardLast4: getCardLast4(originalTransaction),
       };
       if (isCardTransactions) {
         const transToInsert = new CardTransactions({
-          ...transaction,
           ...originalTransaction,
-          cardNumber
+          ...transaction,
+          cardNumber: getCardLast4(originalTransaction) || undefined,
+          cardLast4: getCardLast4(originalTransaction) || undefined,
         });
         cardsTransactionsToInsert.push(transToInsert);
       } else {
         const transToInsert = new Transactions({
-          ...transaction,
           ...originalTransaction,
+          ...transaction,
         });
         transactionsToInsert.push(transToInsert);
       }
@@ -276,7 +344,7 @@ class BankLogic {
 
       if (inserted.length > 0) {
         await invalidateUserDerivedCaches(user_id);
-        if (config.enablePatternPersistence) {
+        if (config.enablePatternPersistence && isRedisAvailable()) {
           try {
             const { enqueuePatternRecompute } = await import('../queues');
             await enqueuePatternRecompute(user_id);
@@ -291,7 +359,7 @@ class BankLogic {
         inserted = [...inserted, ...(err?.insertedDocs ?? [])];
         if (inserted.length > 0) {
           await invalidateUserDerivedCaches(user_id);
-          if (config.enablePatternPersistence) {
+          if (config.enablePatternPersistence && isRedisAvailable()) {
             try {
               const { enqueuePatternRecompute } = await import('../queues');
               await enqueuePatternRecompute(user_id);
@@ -325,6 +393,10 @@ class BankLogic {
   setMainBankAccount = async (user_id: string, bank_id: string): Promise<void> => {
     try {
       const bankAccount = await this.fetchMainAccount(user_id, { 'banks._id': bank_id });
+      if (!bankAccount) {
+        throw new ClientError(500, ErrorMessages.USER_BANK_ACCOUNT_NOT_FOUND);
+      }
+
       const banks = bankAccount.banks.map((bank) => {
         if (bank._id.toString() === bank_id.toString()) {
           bank.isMainAccount = true;
@@ -338,7 +410,7 @@ class BankLogic {
         { $set: { banks } }
       ).exec();
     } catch (err) {
-      throw new ClientError(500, `Error saving the document: ${err}`)
+      throw new ClientError(500, `Error saving the document: ${getErrorMessage(err)}`)
     }
   };
 

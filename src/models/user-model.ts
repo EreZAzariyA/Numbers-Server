@@ -59,13 +59,13 @@ export interface IUserModel extends Document {
   updatedAt: Date;
 };
 
-export const UserSchema = new Schema<IUserModel>({
+const UserSchema = new Schema<IUserModel>({
   profile:{
     first_name: {
       type: String,
       trim: true,
       required: [true, "First name is missing"],
-      minLength: [3, "First name is to short"],
+      minLength: [1, "First name is to short"],
       maxLength: [20, "First name is to long"],
     },
     last_name: {

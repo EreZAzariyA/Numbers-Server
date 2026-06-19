@@ -47,21 +47,27 @@ export interface PatternAnchor {
   stddevDays: number;
 }
 
-export interface InstallmentPlanSummary {
+interface InstallmentPlanSummary {
   paymentsRemaining: number;
   totalPayments: number;
   monthlyAmount?: number;
   expectedLastPaymentDate?: string;
 }
 
-export interface RecurringTransactionItem {
+interface RecurringTransactionItem {
   _id: string;
-  date: string;
-  processedDate: string;
+  eventDate: string;
+  postingDate: string;
   amount: number;
   description: string;
   companyId: string;
   kind: 'income' | 'expense';
+  merchantId?: string;
+  mcc?: string | number | null;
+  counterparty?: string;
+  providerCategoryName?: string;
+  cardLast4?: string;
+  semanticType?: string;
 }
 
 export interface RecurringGroup {
@@ -85,9 +91,28 @@ export interface RecurringGroup {
   source?: 'bank' | 'card';
 }
 
+export interface UpcomingRenewal {
+  patternId?: string;
+  description: string;
+  amount: number;          // positive renewal cost
+  nextExpected: string;    // "YYYY-MM-DD"
+  daysUntil: number;
+  frequency: Frequency;
+  classification: PatternClass;
+  confidence: number;
+  source: 'bank' | 'card';
+  merchantKey?: string;
+}
+
 export interface MonthlySpend {
   month: string;  // "YYYY-MM"
   amount: number;
+}
+
+interface DataQualitySummary {
+  lowConfidenceSettlementCount: number;
+  lowConfidenceSettlementSpend: number;
+  hasGranularCardData: boolean;
 }
 
 export interface ForecastResponse {
@@ -98,6 +123,7 @@ export interface ForecastResponse {
   daysRemaining: number;
   aiInsight: string;
   trend: 'up' | 'down' | 'flat';
+  dataQuality?: DataQualitySummary;
 }
 
 export interface ComponentResult {
@@ -116,6 +142,7 @@ export interface FinancialHealthResponse {
     debtPressure: ComponentResult;
   };
   aiInsight: string;
+  dataQuality?: DataQualitySummary;
 }
 
 export interface ProjectedEvent {

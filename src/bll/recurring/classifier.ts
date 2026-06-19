@@ -1,4 +1,4 @@
-import { PatternClass, Frequency } from '../../utils/types';
+import { PatternClass } from '../../utils/types';
 import { IRecurringPatternModel } from '../../models/recurring-pattern-model';
 
 /**
@@ -13,9 +13,9 @@ type ClassifyInput = Pick<IRecurringPatternModel,
 > & {
   amountStability: number; // 1 - (stddev / mean), clamped 0..1
   installmentTotal?: number;
-  channel?: string;
+  counterparty?: string;
   occurrences: number;
-  categoryDescription?: string;
+  providerCategoryName?: string;
 };
 
 const SALARY_KEYWORDS = ['salary', 'wage', 'payroll', 'משכורת', 'שכר'];
@@ -38,7 +38,7 @@ export const classify = (input: ClassifyInput): PatternClass => {
     input.stability >= 0.85 &&
     input.frequency === 'monthly' &&
     (
-      SALARY_KEYWORDS.some((kw) => (input.categoryDescription ?? '').toLowerCase().includes(kw)) ||
+      SALARY_KEYWORDS.some((kw) => (input.providerCategoryName ?? '').toLowerCase().includes(kw)) ||
       input.occurrences >= 3
     )
   ) {
@@ -53,7 +53,7 @@ export const classify = (input: ClassifyInput): PatternClass => {
   // 4. Subscription (digital, consistent amount, recurring)
   if (
     input.kind === 'expense' &&
-    isOnlineChannel(input.channel) &&
+    isOnlineChannel(input.counterparty) &&
     input.amountStability >= 0.9 &&
     (input.frequency === 'monthly' || input.frequency === 'annual') &&
     input.occurrences >= 3

@@ -5,7 +5,15 @@ import { ClientError, CategoryModel, ICategoryModel, UserModel, ITransactionMode
 import { ErrorMessages, getTotalTransactionsAmounts } from "../utils/helpers";
 import cacheService from "../utils/cache-service";
 
+interface AddNewCategoryOptions {
+  reuseExisting?: boolean;
+}
+
 class CategoriesLogic {
+  private normalizeCategoryName(categoryName: string): string {
+    return categoryName?.trim();
+  }
+
   async createAccountCategories (user_id: string): Promise<ICategories> {
     console.info(`createAccountCategories: Creating categories object for user: ${user_id}`);
 
@@ -59,42 +67,73 @@ class CategoriesLogic {
     return result;
   };
 
-  async fetchUserCategory (user_id: string, categoryName: string): Promise<ICategoryModel> {
-    try {
-      const userCategories = await this.fetchCategoriesByUserId(user_id);
-      const categoryIndex = userCategories.findIndex((c) => c.name === categoryName);
-      const category = userCategories[categoryIndex];
-      return category
-    } catch (err: any) {
-      console.log(err);
-      return err;
+  async fetchUserCategory (user_id: string, categoryName: string): Promise<ICategoryModel | null> {
+    const normalizedCategoryName = this.normalizeCategoryName(categoryName);
+    if (!normalizedCategoryName) {
+      return null;
     }
+
+    const userCategories = await Categories.findOne({ user_id }).exec();
+    const category = userCategories?.categories.find((c) =>
+      this.normalizeCategoryName(c.name) === normalizedCategoryName
+    );
+
+    return category ?? null;
   };
 
-  async addNewCategory(categoryName: string, user_id: string): Promise<ICategoryModel> {
-    const user = await UserModel.findById(user_id).catch(() => {
-      console.info(`addNewCategory: Fail to add category: ${categoryName} - ${ErrorMessages.USER_NOT_FOUND}`);
-      throw new ClientError(400, ErrorMessages.USER_NOT_FOUND);
-    });
-
-    const allCategories = await Categories.findOne({ user_id: user._id }).exec();
-    if (allCategories) {
-      const isExist = allCategories.categories.some((c) => c.name === categoryName);
-
-      if (isExist) {
-        console.info(`addNewCategory: Fail to add category: ${categoryName} - ${ErrorMessages.NAME_IN_USE}`);
-        throw new ClientError(500, ErrorMessages.NAME_IN_USE);
-      }
+  async addNewCategory(
+    categoryName: string,
+    user_id: string,
+    options: AddNewCategoryOptions = {}
+  ): Promise<ICategoryModel> {
+    const normalizedCategoryName = this.normalizeCategoryName(categoryName);
+    if (!normalizedCategoryName) {
+      throw new ClientError(400, "Category name is missing");
     }
 
-    const category = new CategoryModel({ name: categoryName });
-    const updatedCategories = await Categories.findOneAndUpdate(
+    const user = await UserModel.findById(user_id);
+    if (!user) {
+      console.info(`addNewCategory: Fail to add category: ${normalizedCategoryName} - ${ErrorMessages.USER_NOT_FOUND}`);
+      throw new ClientError(400, ErrorMessages.USER_NOT_FOUND);
+    }
+
+    await Categories.updateOne(
       { user_id: user._id },
+      { $setOnInsert: { user_id: user._id, categories: [] } },
+      { upsert: true }
+    ).exec();
+
+    const existingCategory = await this.fetchUserCategory(user_id, normalizedCategoryName);
+    if (existingCategory) {
+      if (options.reuseExisting) {
+        return existingCategory;
+      }
+
+      console.info(`addNewCategory: Fail to add category: ${normalizedCategoryName} - ${ErrorMessages.NAME_IN_USE}`);
+      throw new ClientError(409, ErrorMessages.NAME_IN_USE);
+    }
+
+    const category = new CategoryModel({ name: normalizedCategoryName });
+    const updatedCategories = await Categories.findOneAndUpdate(
+      {
+        user_id: user._id,
+        'categories.name': { $ne: normalizedCategoryName }
+      },
       { $push: { categories: category } },
-      { new: true, upsert: true }
+      { new: true }
     ).exec();
 
     if (!updatedCategories) {
+      const categoryAfterRace = await this.fetchUserCategory(user_id, normalizedCategoryName);
+      if (categoryAfterRace) {
+        if (options.reuseExisting) {
+          return categoryAfterRace;
+        }
+
+        console.info(`addNewCategory: Fail to add category: ${normalizedCategoryName} - ${ErrorMessages.NAME_IN_USE}`);
+        throw new ClientError(409, ErrorMessages.NAME_IN_USE);
+      }
+
       console.error('Failed to add category, document not found or created.');
       throw new ClientError(500, 'Failed to add category');
     }

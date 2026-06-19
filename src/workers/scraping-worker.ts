@@ -1,10 +1,11 @@
 import { Worker, Job } from 'bullmq';
-import { redisConnection } from '../queues';
+import { getRedisConnection } from '../queues';
 import { getBankData, insertBankAccount } from '../utils/bank-utils';
 import { UserBankCredentials, isArrayAndNotEmpty, getFutureDebitDate } from '../utils/helpers';
 import bankLogic from '../bll/banks';
 import { categoriesLogic } from '../bll';
 import { socketIo } from '../dal/socket';
+import config from '../utils/config';
 
 export interface ScrapingJobData {
   user_id: string;
@@ -14,7 +15,7 @@ export interface ScrapingJobData {
   isRefresh: boolean;
 }
 
-export interface ScrapingJobResult {
+interface ScrapingJobResult {
   bank: any;
   account: any;
   importedTransactions?: any[];
@@ -42,7 +43,7 @@ const processScrapingJob = async (job: Job<ScrapingJobData>): Promise<ScrapingJo
   if (!isRefresh) {
     const defCategory = await categoriesLogic.fetchUserCategory(user_id, 'Others');
     if (!defCategory) {
-      await categoriesLogic.addNewCategory('Others', user_id);
+      await categoriesLogic.addNewCategory('Others', user_id, { reuseExisting: true });
     }
   }
 
@@ -103,8 +104,8 @@ const processScrapingJob = async (job: Job<ScrapingJobData>): Promise<ScrapingJo
 
 export const startScrapingWorker = () => {
   const worker = new Worker('bank-scraping', processScrapingJob, {
-    connection: redisConnection,
-    concurrency: 2,
+    connection: getRedisConnection(),
+    concurrency: config.workers.scrapingConcurrency,
   });
 
   worker.on('completed', (job) => {

@@ -2,20 +2,18 @@ import { TokenPayload } from "google-auth-library";
 import ClientError from "../models/client-error";
 import { IUserModel, UserModel } from "../models/user-model";
 
-const getGoogleDetails = async (token: string): Promise<TokenPayload> => {
-  if (!token) {
-    throw new Error('Access token not found');
-  }
-  const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
-    headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
-  if (!response.ok) {
-    throw new ClientError(response.status,'Failed to fetch user details');
-  }
-  const userDetails = await response.json();
-  return userDetails;
+const FIRST_NAME_MAX_LENGTH = 20;
+const FALLBACK_FIRST_NAME = "User";
+
+// Google's given_name can be empty or longer than our schema allows, so derive a
+// first name that always satisfies the User schema constraints.
+const resolveFirstName = (payload: TokenPayload): string => {
+  const candidate =
+    payload.given_name?.trim() ||
+    payload.name?.trim() ||
+    payload.email?.split("@")[0]?.trim() ||
+    FALLBACK_FIRST_NAME;
+  return candidate.slice(0, FIRST_NAME_MAX_LENGTH);
 };
 
 const createUserForGoogleAccounts = (payload: TokenPayload): Promise<IUserModel> => {
@@ -25,8 +23,8 @@ const createUserForGoogleAccounts = (payload: TokenPayload): Promise<IUserModel>
       isValidate: payload.email_verified
     },
     profile: {
-      first_name: payload.given_name || '',
-      last_name: payload.family_name || '',
+      first_name: resolveFirstName(payload),
+      last_name: (payload.family_name || '').slice(0, FIRST_NAME_MAX_LENGTH),
       image_url: payload.picture || ''
     },
     services: {
@@ -36,15 +34,13 @@ const createUserForGoogleAccounts = (payload: TokenPayload): Promise<IUserModel>
 
   const errors = user.validateSync();
   if (errors) {
-    Object.keys(errors.errors).forEach((field) => {
-      throw new ClientError(500, errors.errors[field].message);
-    });
-  };
+    const firstError = Object.values(errors.errors)[0];
+    throw new ClientError(400, firstError?.message ?? 'Invalid Google account details');
+  }
 
   return user.save();
 };
 
 export default {
-  getGoogleDetails,
   createUserForGoogleAccounts
 };

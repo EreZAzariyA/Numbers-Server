@@ -1,46 +1,72 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { TransactionStatuses } from 'israeli-bank-scrapers-for-e.a-servers/lib/transactions';
-import { Transactions, CardTransactions, Categories, Accounts } from '../collections';
+import { Categories, Accounts } from '../collections';
 import { FinancialHealthResponse, ComponentResult } from '../utils/types';
 import cacheService from '../utils/cache-service';
+import { buildFinancialHealthPrompt } from '../utils/ai-prompts';
+import { generateUserInsight } from '../utils/ai-provider';
+import { buildSettlementTreatmentMap } from '../utils/settlement-detection';
+import { getEventDate, getTransactionAmount, getTransactionTextSource } from '../utils/transaction-semantics';
+import { monthBounds } from '../utils/date-helpers';
+import { round2, sumIncomeExpense } from '../utils/money';
+import { fetchCompletedTransactions } from './shared/transaction-queries';
+import { filterAndTallySettlements } from './shared/settlement-filter';
 
 const toStatus = (score: number): 'good' | 'warning' | 'bad' =>
   score >= 70 ? 'good' : score >= 40 ? 'warning' : 'bad';
 
+// A score of exactly 50 is the "no data" sentinel → neutral; otherwise grade it.
+const makeComponent = (score: number, detail: string): ComponentResult => ({
+  score,
+  status: score === 50 ? 'neutral' : toStatus(score),
+  detail,
+});
+
 export const calculateFinancialHealth = async (
   user_id: string,
-  language: string = 'en'
+  language: string = 'en',
+  includeInsight: boolean = true,
 ): Promise<FinancialHealthResponse> => {
-  const cacheKey = `financialHealth:${user_id}:${language}`;
-  const cached = await cacheService.get<FinancialHealthResponse>(cacheKey);
+  const baseKey = `financialHealth:${user_id}:${language}`;
+  const cacheKey = includeInsight ? baseKey : `${baseKey}:lite`;
+  let cached = await cacheService.get<FinancialHealthResponse>(cacheKey);
+  if (!cached && !includeInsight) {
+    // Reuse the dashboard's full (insight-bearing) cache when it is already warm.
+    cached = await cacheService.get<FinancialHealthResponse>(baseKey);
+  }
   if (cached) return cached;
 
   const now = new Date();
-  const currentMonthStr = now.toISOString().slice(0, 7); // "YYYY-MM"
-  const currentMonthStart = `${currentMonthStr}-01`;
+  const { start: currentMonthStart } = monthBounds(now);
 
   // --- Fetch current-month transactions (both collections) ---
-  const [regularTxns, cardTxns] = await Promise.all([
-    Transactions.find({
-      user_id,
-      status: TransactionStatuses.Completed,
-      date: { $gte: currentMonthStart },
-    }).lean().exec(),
-    CardTransactions.find({
-      user_id,
-      status: TransactionStatuses.Completed,
-      date: { $gte: currentMonthStart },
-    }).lean().exec(),
-  ]);
+  const { regularTxns, cardTxns } = await fetchCompletedTransactions(user_id, {
+    eventDate: { $gte: currentMonthStart },
+  });
 
-  const allCurrent = [...regularTxns, ...cardTxns].map((t: any) => ({
-    amount: t.amount ?? t.chargedAmount ?? 0,
+  const hasCardData = cardTxns.length > 0;
+  const settlementTreatments = buildSettlementTreatmentMap(regularTxns, cardTxns);
+  const dataQuality = {
+    lowConfidenceSettlementCount: 0,
+    lowConfidenceSettlementSpend: 0,
+    hasGranularCardData: hasCardData,
+  };
+
+  const allCurrent = filterAndTallySettlements(
+    [...regularTxns, ...cardTxns],
+    settlementTreatments,
+    hasCardData,
+    {
+      id: (t: any) => t._id?.toString?.() ?? '',
+      text: (t: any) => getTransactionTextSource(t),
+      amount: (t: any) => getTransactionAmount(t),
+    },
+    dataQuality,
+  ).map((t: any) => ({
+    amount: getTransactionAmount(t),
     category_id: t.category_id?.toString() ?? '',
   }));
 
-  const incomeToDate = allCurrent.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-  const expensesToDate = Math.abs(allCurrent.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0));
-  const net = incomeToDate - expensesToDate;
+  const { income: incomeToDate, net } =
+    sumIncomeExpense(allCurrent.map((t) => t.amount));
 
   // --- Component 1: Cash Flow ---
   let cashFlowScore = 50;
@@ -58,11 +84,7 @@ export const calculateFinancialHealth = async (
       cashFlowDetail = `Deficit of ${Math.round(Math.abs(net)).toLocaleString()} this month`;
     }
   }
-  const cashFlow: ComponentResult = {
-    score: cashFlowScore,
-    status: cashFlowScore === 50 ? 'neutral' : toStatus(cashFlowScore),
-    detail: cashFlowDetail,
-  };
+  const cashFlow = makeComponent(cashFlowScore, cashFlowDetail);
 
   // --- Component 2: Category Budgets ---
   const categoriesDoc = await Categories.findOne({ user_id }).lean().exec();
@@ -99,34 +121,35 @@ export const calculateFinancialHealth = async (
       budgetsDetail = `${exceededCount} budget limits exceeded this month`;
     }
   }
-  const categoryBudgets: ComponentResult = {
-    score: budgetsScore,
-    status: budgetsScore === 50 ? 'neutral' : toStatus(budgetsScore),
-    detail: budgetsDetail,
-  };
+  const categoryBudgets = makeComponent(budgetsScore, budgetsDetail);
 
   // --- Component 3: Savings Trend (last 3 complete months net) ---
   const threeMonthsAgoStr = new Date(now.getFullYear(), now.getMonth() - 3, 1)
     .toISOString().slice(0, 10);
 
-  const [histRegular, histCard] = await Promise.all([
-    Transactions.find({
-      user_id,
-      status: TransactionStatuses.Completed,
-      date: { $gte: threeMonthsAgoStr, $lt: currentMonthStart },
-    }).lean().exec(),
-    CardTransactions.find({
-      user_id,
-      status: TransactionStatuses.Completed,
-      date: { $gte: threeMonthsAgoStr, $lt: currentMonthStart },
-    }).lean().exec(),
-  ]);
+  const { regularTxns: histRegular, cardTxns: histCard } = await fetchCompletedTransactions(user_id, {
+    eventDate: { $gte: threeMonthsAgoStr, $lt: currentMonthStart },
+  });
+
+  const hasHistCardData = histCard.length > 0;
+  const historicalSettlementTreatments = buildSettlementTreatmentMap(histRegular, histCard);
+  dataQuality.hasGranularCardData = hasCardData || hasHistCardData;
 
   const netByMonth = new Map<string, number>();
-  for (const t of [...histRegular, ...histCard]) {
-    const month = ((t as any).date as string).slice(0, 7);
-    const amount = (t as any).amount ?? (t as any).chargedAmount ?? 0;
-    netByMonth.set(month, (netByMonth.get(month) ?? 0) + amount);
+  const keptHist = filterAndTallySettlements(
+    [...histRegular, ...histCard],
+    historicalSettlementTreatments,
+    hasHistCardData,
+    {
+      id: (t: any) => t._id?.toString?.() ?? '',
+      text: (t: any) => getTransactionTextSource(t),
+      amount: (t: any) => getTransactionAmount(t),
+    },
+    dataQuality,
+  );
+  for (const t of keptHist) {
+    const month = getEventDate(t as any).slice(0, 7);
+    netByMonth.set(month, (netByMonth.get(month) ?? 0) + getTransactionAmount(t as any));
   }
   const monthNets = Array.from(netByMonth.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -151,11 +174,7 @@ export const calculateFinancialHealth = async (
       savingsDetail = 'Spending exceeded income in recent months';
     }
   }
-  const savingsTrend: ComponentResult = {
-    score: savingsScore,
-    status: savingsScore === 50 ? 'neutral' : toStatus(savingsScore),
-    detail: savingsDetail,
-  };
+  const savingsTrend = makeComponent(savingsScore, savingsDetail);
 
   // --- Component 4: Debt Pressure ---
   const accountDoc = await Accounts.findOne({ user_id }).lean().exec();
@@ -184,11 +203,7 @@ export const calculateFinancialHealth = async (
       debtDetail = `Monthly loan payments: ${Math.round(totalMonthlyLoanPayment).toLocaleString()}`;
     }
   }
-  const debtPressure: ComponentResult = {
-    score: debtScore,
-    status: debtScore === 50 ? 'neutral' : toStatus(debtScore),
-    detail: debtDetail,
-  };
+  const debtPressure = makeComponent(debtScore, debtDetail);
 
   // --- Overall score ---
   const score = Math.round(
@@ -197,32 +212,23 @@ export const calculateFinancialHealth = async (
     savingsTrend.score * 0.25 +
     debtPressure.score * 0.20
   );
-  const status: 'good' | 'warning' | 'bad' = score >= 70 ? 'good' : score >= 40 ? 'warning' : 'bad';
+  const status = toStatus(score);
 
-  // --- Gemini insight ---
+  // --- AI insight (skipped when only the numbers are needed, e.g. chat context) ---
   let aiInsight = '';
-  try {
-    if (process.env.GEMINI_API_KEY) {
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
-        generationConfig: { maxOutputTokens: 200 },
-        systemInstruction: `You are a personal finance assistant. Respond in ${language === 'he' ? 'Hebrew' : 'English'}. Be concise and helpful.`,
-      });
-
-      const prompt = `Financial health score: ${score}/100 (${status})
-- Cash flow: ${cashFlow.detail} (score: ${cashFlow.score}/100)
-- Category budgets: ${categoryBudgets.detail} (score: ${categoryBudgets.score}/100)
-- Savings trend: ${savingsTrend.detail} (score: ${savingsTrend.score}/100)
-- Debt pressure: ${debtPressure.detail} (score: ${debtPressure.score}/100)
-
-Write 2-3 sentences: identify the main driver of this score and give one specific actionable improvement.`;
-
-      const result = await model.generateContent(prompt);
-      aiInsight = result.response.text();
-    }
-  } catch (err: any) {
-    console.error('Gemini API error (financial-health):', err?.message ?? err);
+  if (includeInsight) {
+    const { systemInstruction, prompt } = buildFinancialHealthPrompt({
+      score,
+      status,
+      components: { cashFlow, categoryBudgets, savingsTrend, debtPressure },
+    }, language);
+    aiInsight = await generateUserInsight({
+      user_id,
+      context: 'financial-health',
+      prompt,
+      systemInstruction,
+      maxOutputTokens: 200,
+    });
   }
 
   const response: FinancialHealthResponse = {
@@ -230,6 +236,10 @@ Write 2-3 sentences: identify the main driver of this score and give one specifi
     status,
     components: { cashFlow, categoryBudgets, savingsTrend, debtPressure },
     aiInsight,
+    dataQuality: {
+      ...dataQuality,
+      lowConfidenceSettlementSpend: round2(dataQuality.lowConfidenceSettlementSpend),
+    },
   };
 
   await cacheService.set(cacheKey, response, 300);

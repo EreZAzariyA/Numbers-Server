@@ -1,16 +1,23 @@
-# Stage 1: Compile TypeScript
+# ── Stage 1: compile TypeScript ───────────────────────────────────────────────
 FROM node:22-slim AS builder
 
-WORKDIR /app
+WORKDIR /workspace/numbers-server
+
 COPY package*.json ./
-RUN npm ci
+
+# Replace the local file: reference with the published npm version, then drop
+# the lockfile so npm resolves fresh from the registry (no file: residue).
+RUN npm pkg set dependencies["israeli-bank-scrapers-for-e.a-servers"]="^3.0.1" \
+    && rm -f package-lock.json \
+    && npm install --legacy-peer-deps
+
 COPY . .
 RUN npx tsc
 
-# Stage 2: Runtime with Chromium for israeli-bank-scrapers
+# ── Stage 2: lean runtime image with Chromium for bank scrapers ───────────────
 FROM node:22
 
-# Install Chromium and its dependencies for bank scrapers (Puppeteer)
+# Chromium + Puppeteer system dependencies
 RUN apt-get update && apt-get install -y \
     chromium \
     fonts-liberation \
@@ -38,10 +45,16 @@ RUN apt-get update && apt-get install -y \
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-WORKDIR /app
+WORKDIR /workspace/numbers-server
+
 COPY package*.json ./
-RUN npm ci --omit=dev
-COPY --from=builder /app/build ./build
+
+RUN npm pkg set dependencies["israeli-bank-scrapers-for-e.a-servers"]="^3.0.1" \
+    && rm -f package-lock.json \
+    && npm install --omit=dev --legacy-peer-deps
+
+# Copy compiled output from builder
+COPY --from=builder /workspace/numbers-server/build ./build
 
 EXPOSE 5000
 

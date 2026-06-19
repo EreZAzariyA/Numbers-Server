@@ -1,19 +1,27 @@
-import moment from "moment";
 import puppeteer from "puppeteer";
 import { CompanyTypes, ScraperCredentials, ScraperOptions, ScraperScrapingResult, createScraper } from "israeli-bank-scrapers-for-e.a-servers";
 import { TransactionsAccount } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { ClientError, BankModel, IBankModal } from "../models";
 import { Accounts } from "../collections";
 import { bankLogic } from "../bll";
-import jwtService from "./jwt";
-import { ErrorMessages, isCardProviderCompany, SupportedCompanies, UserBankCredentials } from "./helpers";
+import { encryptBankCredentials } from "./bank-credentials";
+import { ErrorMessages, isCardProviderCompany, isSupportedCompany, SupportedCompanies, UserBankCredentials } from "./helpers";
+import config from "./config";
 
-export const createCredentials = (details: UserBankCredentials): ScraperCredentials => {
-  if (!SupportedCompanies[details.companyId]) {
+const requireString = (value: string | undefined, fieldName: string): string => {
+  if (value) {
+    return value;
+  }
+
+  throw new ClientError(400, `${fieldName} is missing`);
+};
+
+const createCredentials = (details: UserBankCredentials): ScraperCredentials => {
+  if (!isSupportedCompany(details.companyId)) {
     throw new ClientError(500, `${ErrorMessages.COMPANY_NOT_SUPPORTED} - ${details.companyId}`);
   }
 
-  let credentials: ScraperCredentials = null;
+  let credentials: ScraperCredentials | undefined;
   switch (details.companyId) {
     case SupportedCompanies[CompanyTypes.discount]:
       credentials = {
@@ -24,13 +32,13 @@ export const createCredentials = (details: UserBankCredentials): ScraperCredenti
     break;
     case SupportedCompanies[CompanyTypes.max]:
       credentials = {
-        username: details.username,
+        username: requireString(details.username, 'Username'),
         password: details.password
       };
     break;
     case SupportedCompanies[CompanyTypes.visaCal]:
       credentials = {
-        username: details.username,
+        username: requireString(details.username, 'Username'),
         password: details.password
       };
     break;
@@ -42,32 +50,44 @@ export const createCredentials = (details: UserBankCredentials): ScraperCredenti
     break;
     case SupportedCompanies[CompanyTypes.leumi]:
       credentials = {
-        username: details.username,
+        username: requireString(details.username, 'Username'),
         password: details.password
       };
     break;
-  };
+  }
+
+  if (!credentials) {
+    throw new ClientError(500, `${ErrorMessages.COMPANY_NOT_SUPPORTED} - ${details.companyId}`);
+  }
 
   return credentials;
 };
 
 export const getBankData = async (details: UserBankCredentials): Promise<ScraperScrapingResult> => {
-  const startDate = moment().subtract(1, 'year').toDate();
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - config.bankScraper.lookbackMonths);
+  if (!isSupportedCompany(details.companyId)) {
+    throw new ClientError(500, `${ErrorMessages.COMPANY_NOT_SUPPORTED} - ${details.companyId}`);
+  }
 
   const browser = await puppeteer.launch({
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    headless: true,
+    headless: config.bankScraper.headless,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
 
-  const options: ScraperOptions = {
+  // The scraper bundles its own copy of puppeteer, whose Browser type is nominally
+  // distinct from ours (puppeteer's #private brand) even at the same version. The
+  // runtime object is correct, so cast across the install boundary via unknown.
+  const options = {
     companyId: CompanyTypes[details.companyId],
     startDate,
     combineInstallments: false,
-    showBrowser: false,
-    defaultTimeout: 60000,
+    defaultTimeout: config.bankScraper.defaultTimeoutMs,
+    includeRawTransaction: true,
+    additionalTransactionInformation: true,
     browser,
-  };
+  } as unknown as ScraperOptions;
 
   const credentials = createCredentials(details);
 
@@ -101,6 +121,7 @@ export const insertBankAccount = async (
     return newBank;
   } catch (err: any) {
     console.log({ err });
+    throw new ClientError(500, 'Failed to insert bank account');
   }
 };
 
@@ -122,14 +143,23 @@ const updateBank = async (
 
   try {
     const bankAccounts = await Accounts.findOneAndUpdate(options, query, projection).exec();
-    return bankAccounts.banks.find((b) => b._id?.toString() === currBankAccount._id?.toString());
+    if (!bankAccounts) {
+      throw new ClientError(500, ErrorMessages.BANK_ACCOUNT_NOT_FOUND);
+    }
+
+    const updatedBank = bankAccounts.banks.find((b) => b._id?.toString() === currBankAccount._id?.toString());
+    if (!updatedBank) {
+      throw new ClientError(500, ErrorMessages.BANK_ACCOUNT_NOT_FOUND);
+    }
+
+    return updatedBank;
   } catch (error: any) {
     console.log(error);
-    return;
+    throw new ClientError(500, 'Failed to update bank account');
   }
 };
 
-export const createBank = async (
+const createBank = async (
   bankName: string,
   credentialsDetails: UserBankCredentials,
   account: TransactionsAccount
@@ -151,14 +181,14 @@ export const createBank = async (
     loans: account?.loans,
     securities: account?.securities,
     ...(credentialsDetails?.save && {
-      credentials: jwtService.createNewToken(credentialsDetails),
+      credentials: encryptBankCredentials(credentialsDetails),
     }),
   });
 
   return bankAccount;
 };
 
-export const createUpdateQuery = (
+const createUpdateQuery = (
   account: TransactionsAccount,
   details: UserBankCredentials
 ): object => ({
@@ -174,7 +204,7 @@ export const createUpdateQuery = (
     'banks.$.loans': account?.loans,
     'banks.$.securities': account?.securities,
     ...(details.save && {
-      'banks.$.credentials': jwtService.createNewToken(details)
+      'banks.$.credentials': encryptBankCredentials(details)
     })
   }
 });

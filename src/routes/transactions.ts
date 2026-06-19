@@ -11,7 +11,7 @@ const router = express.Router();
 router.get("/recurring/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const groups = await detectRecurringTransactions(user_id);
+    const groups = await detectRecurringTransactions(user_id, { dateBasis: 'event' });
     res.status(200).json(groups);
   } catch (err: any) {
     next(err);

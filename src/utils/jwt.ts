@@ -4,7 +4,7 @@ import config from "./config";
 import cacheService from "./cache-service";
 import { ClientError, IUserModel } from "../models";
 import { usersLogic } from "../bll";
-import { ErrorMessages, UserBankCredentials } from "./helpers";
+import { ErrorMessages } from "./helpers";
 
 class JWTServices {
   private secretKey: string = config.secretKey;
@@ -71,11 +71,6 @@ class JWTServices {
     const payload = jwt.decode(token);
     const user = (payload as IUserModel);
     return user;
-  };
-
-  public async fetchBankCredentialsFromToken(token: string): Promise<UserBankCredentials> {
-    const payload = jwt.decode(token);
-    return (payload as any);
   };
 
   public createRefreshToken(userId: string): string {

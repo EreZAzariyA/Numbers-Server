@@ -1,18 +1,40 @@
-import { Transaction, TransactionStatuses, TransactionTypes } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
+import { TransactionStatuses, TransactionTypes } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
 import { Document, model, Schema } from "mongoose";
 
-export interface ICardTransactionModel extends Transaction, Document {
+export interface ICardTransactionModel extends Document {
   user_id: Schema.Types.ObjectId;
-  cardNumber: string | number;
+  cardNumber?: string | number;
+  cardLast4?: string | number;
+  cardUniqueId?: string;
   type: TransactionTypes;
-  date: string;
-  processedDate: string;
+  eventDate: string;
+  postingDate: string;
+  billingDate?: string;
+  date?: string;
+  processedDate?: string;
   identifier: number | string;
   category_id: Schema.Types.ObjectId;
   description: string;
   amount: number;
   status: TransactionStatuses;
   companyId?: string;
+  originalAmount?: number;
+  originalCurrency?: string;
+  chargedAmount?: number;
+  chargedCurrency?: string;
+  memo?: string;
+  installments?: { number?: number; total?: number };
+  semanticType?: string;
+  providerCategoryId?: string | number;
+  providerCategoryName?: string;
+  merchantId?: string;
+  mcc?: string | number;
+  counterparty?: string;
+  category?: string;
+  categoryDescription?: string;
+  channel?: string;
+  channelName?: string;
+  rawTransaction?: any;
 };
 
 const CardTransactionsSchema = new Schema<ICardTransactionModel>({
@@ -22,16 +44,34 @@ const CardTransactionsSchema = new Schema<ICardTransactionModel>({
   },
   cardNumber: {
     type: Schema.Types.Mixed,
-    required: [true, 'Card number is missing'],
+  },
+  cardLast4: {
+    type: Schema.Types.Mixed,
+  },
+  cardUniqueId: {
+    type: String,
+    trim: true,
   },
   type: {
+    type: String,
+    trim: true,
+  },
+  eventDate: {
+    type: String,
+    trim: true,
+    required: [true, "Date is missing"],
+  },
+  postingDate: {
+    type: String,
+    trim: true,
+  },
+  billingDate: {
     type: String,
     trim: true,
   },
   date: {
     type: String,
     trim: true,
-    required: [true, "Date is missing"],
   },
   processedDate: {
     type: String,
@@ -78,6 +118,28 @@ const CardTransactionsSchema = new Schema<ICardTransactionModel>({
   installments: {
     number: { type: Number },
     total: { type: Number },
+  },
+  semanticType: {
+    type: String,
+    trim: true,
+  },
+  providerCategoryId: {
+    type: Schema.Types.Mixed,
+  },
+  providerCategoryName: {
+    type: String,
+    trim: true,
+  },
+  merchantId: {
+    type: String,
+    trim: true,
+  },
+  mcc: {
+    type: Schema.Types.Mixed,
+  },
+  counterparty: {
+    type: String,
+    trim: true,
   },
   category: {
     type: String,

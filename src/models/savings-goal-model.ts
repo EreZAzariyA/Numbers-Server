@@ -1,4 +1,4 @@
-import { Document, Schema, model } from "mongoose";
+import { Document, Schema } from "mongoose";
 
 export interface ISavingsGoalModel extends Document {
   name: string;
@@ -15,5 +15,3 @@ export const SavingsGoalSchema = new Schema<ISavingsGoalModel>({
   targetDate: { type: String, required: [true, 'Target date is missing'] },
   aiInsight: { type: String, default: '' },
 }, { versionKey: false });
-
-export const SavingsGoalModel = model<ISavingsGoalModel>('SavingsGoal', SavingsGoalSchema);

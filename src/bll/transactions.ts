@@ -1,13 +1,22 @@
 import { Model } from "mongoose";
 import { Transaction, TransactionStatuses, TransactionTypes } from "israeli-bank-scrapers-for-e.a-servers/lib/transactions";
-import { ClientError, ICardTransactionModel, ITransactionModel } from "../models";
+import { ClientError } from "../models";
 import { Transactions, CardTransactions } from "../collections";
 import { isCardProviderCompany } from "../utils/helpers";
-import { MainTransactionType, RecurringGroup } from "../utils/types";
+import { MainTransactionType, RecurringGroup, Frequency, PatternAnchor } from "../utils/types";
 import cacheService from "../utils/cache-service";
-import { toDateStr, addDays, diffDays, ymd, dayOfMonth } from "../utils/date-helpers";
 import { normalize, descriptionKey } from "./recurring/normalization";
+import { detectFrequency as detectRecurringFrequency, nextUpcomingOccurrence, MIN_RECURRING_OCCURRENCES } from "./recurring/frequency-detection";
+import { buildSettlementTreatmentMap, classifySettlement } from "../utils/settlement-detection";
 import config from "../utils/config";
+import { isRedisAvailable } from "../utils/connectRedis";
+import {
+  getCardLast4,
+  getEventDate,
+  getPostingDate,
+  getTransactionAmount,
+  getTransactionTextSource,
+} from "../utils/transaction-semantics";
 
 export type TransactionParams = {
   query: object;
@@ -19,14 +28,16 @@ export type TransactionParams = {
 const invalidateUserDerivedCaches = async (user_id: string): Promise<void> => {
   await Promise.all([
     cacheService.del(`cashFlow:${user_id}`),
-    cacheService.del(`forecast:${user_id}`),
-    cacheService.del(`financialHealth:${user_id}`),
+    // forecast/health are keyed by language (and a :lite variant for chat context),
+    // so clear by pattern rather than an exact key that would never match.
+    cacheService.delByPattern(`forecast:${user_id}:*`),
+    cacheService.delByPattern(`financialHealth:${user_id}:*`),
     cacheService.del(`patterns:${user_id}`),
   ]);
 };
 
 const enqueuePatternRecomputeSafe = async (user_id: string): Promise<void> => {
-  if (!config.enablePatternPersistence) return;
+  if (!config.enablePatternPersistence || !isRedisAvailable()) return;
   try {
     // Dynamic import keeps BullMQ queue creation lazy; avoids module-init cycles
     // when this file is imported before queues/index.ts has initialised Redis.
@@ -50,7 +61,7 @@ class TransactionsLogic {
     let total: number = 0;
 
       total = await collection.countDocuments({ user_id, ...query });
-      transactions = await collection.find({ user_id, ...query }, projection, { ...options, sort: { 'date': -1 } });
+      transactions = await collection.find({ user_id, ...query }, projection, { ...options, sort: { 'eventDate': -1, 'date': -1 } });
 
     return {
       transactions,
@@ -72,8 +83,8 @@ class TransactionsLogic {
           ...(transaction?.memo ? {
             memo: transaction.memo
           } : {}),
-          ...(transaction?.date ? {
-            date: transaction.date
+          ...(getEventDate(transaction) ? {
+            eventDate: getEventDate(transaction)
           } : {}),
            companyId,
            description: transaction.description,
@@ -104,7 +115,8 @@ class TransactionsLogic {
     if (isCardTransaction) {
       newTransaction = new CardTransactions({
         user_id,
-        cardNumber: transaction?.cardNumber || null,
+        cardNumber: getCardLast4(transaction) || null,
+        cardLast4: getCardLast4(transaction) || null,
         ...transaction
       });
     } else {
@@ -137,7 +149,10 @@ class TransactionsLogic {
     const updatedTransaction = await collection.findOneAndUpdate({ user_id, _id: transaction._id }, {
       $set: {
         ...transaction,
-        date: transaction.date,
+        eventDate: getEventDate(transaction),
+        postingDate: getPostingDate(transaction),
+        date: getEventDate(transaction),
+        processedDate: getPostingDate(transaction),
         category_id: transaction.category_id,
         description: transaction.description,
         amount: transaction.amount,
@@ -213,77 +228,27 @@ const clusterByAmount = (items: any[]): any[][] => {
  * that DOM in the next month. Otherwise falls back to lastDate + periodDays.
  */
 const detectFrequency = (items: any[]): {
-  frequency: 'monthly' | 'weekly' | 'irregular';
+  frequency: Frequency | 'irregular';
   nextExpected: string | null;
-  anchor?: { kind: 'dayOfMonth' | 'dayOfWeek'; value: number; stddevDays: number };
+  anchor?: PatternAnchor;
 } => {
   const sorted = [...items].sort((a, b) =>
-    new Date(a.processedDate).getTime() - new Date(b.processedDate).getTime()
+    new Date(a.postingDate).getTime() - new Date(b.postingDate).getTime()
   );
-  if (sorted.length < 2) return { frequency: 'irregular', nextExpected: null };
+  if (sorted.length < MIN_RECURRING_OCCURRENCES) return { frequency: 'irregular', nextExpected: null };
 
-  const gaps: number[] = [];
-  for (let i = 1; i < sorted.length; i++) {
-    gaps.push(diffDays(sorted[i - 1].processedDate, sorted[i].processedDate));
-  }
-  const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-  const lastDate = sorted[sorted.length - 1].processedDate;
-
-  if (avgGap >= 25 && avgGap <= 35) {
-    // DOM anchor — mode of day-of-month
-    const doms = sorted.map((t) => dayOfMonth(t.processedDate));
-    const domHist: Record<number, number> = {};
-    for (const d of doms) domHist[d] = (domHist[d] ?? 0) + 1;
-    const [modeDomStr] = Object.entries(domHist).sort(([, a], [, b]) => b - a)[0];
-    const modeDom = parseInt(modeDomStr, 10);
-    const concentration = (domHist[modeDom] ?? 0) / doms.length;
-    const mean = doms.reduce((s, v) => s + v, 0) / doms.length;
-    const stddev = Math.sqrt(
-      doms.reduce((s, v) => s + (v - mean) ** 2, 0) / doms.length
-    );
-
-    if (concentration >= 0.5) {
-      // Snap to modal DOM in the next month after lastDate.
-      const last = new Date(lastDate);
-      const year = last.getUTCFullYear();
-      const month = last.getUTCMonth() + 1; // next month (zero-indexed)
-      const overflowYear = month > 11 ? year + 1 : year;
-      const overflowMonth = month > 11 ? 0 : month;
-      return {
-        frequency: 'monthly',
-        nextExpected: ymd(overflowYear, overflowMonth, modeDom),
-        anchor: { kind: 'dayOfMonth', value: modeDom, stddevDays: Math.round(stddev * 10) / 10 },
-      };
-    }
-
-    return { frequency: 'monthly', nextExpected: addDays(lastDate, 30) };
+  const dates = sorted.map((item) => item.postingDate);
+  const lastDate = sorted[sorted.length - 1].postingDate;
+  const result = detectRecurringFrequency(dates);
+  if (result.freq === 'unknown' || result.freq === 'irregular') {
+    return { frequency: 'irregular', nextExpected: null, anchor: result.anchor };
   }
 
-  if (avgGap >= 5 && avgGap <= 9) {
-    // DOW anchor for weekly
-    const dows = sorted.map((t) => new Date(t.processedDate).getUTCDay());
-    const dowHist: Record<number, number> = {};
-    for (const d of dows) dowHist[d] = (dowHist[d] ?? 0) + 1;
-    const [modeDowStr] = Object.entries(dowHist).sort(([, a], [, b]) => b - a)[0];
-    const modeDow = parseInt(modeDowStr, 10);
-    const concentration = (dowHist[modeDow] ?? 0) / dows.length;
-
-    if (concentration >= 0.5) {
-      // Snap to modal DOW after lastDate.
-      const lastDow = new Date(lastDate).getUTCDay();
-      let delta = (modeDow - lastDow + 7) % 7;
-      if (delta === 0) delta = 7;
-      return {
-        frequency: 'weekly',
-        nextExpected: addDays(lastDate, delta),
-        anchor: { kind: 'dayOfWeek', value: modeDow, stddevDays: 1 },
-      };
-    }
-
-    return { frequency: 'weekly', nextExpected: addDays(lastDate, 7) };
-  }
-
-  return { frequency: 'irregular', nextExpected: null };
+  return {
+    frequency: result.freq,
+    nextExpected: nextUpcomingOccurrence(lastDate, result.freq, result.anchor),
+    anchor: result.anchor,
+  };
 };
 
 const getRecurringKind = (amount: number): 'income' | 'expense' =>
@@ -292,36 +257,111 @@ const getRecurringKind = (amount: number): 'income' | 'expense' =>
 const isInstallmentLike = (transaction: any): boolean =>
   transaction?.type === TransactionTypes.Installments || Boolean(transaction?.installments?.total);
 
+const isSettlementRecurringGroup = (group: RecurringGroup): boolean =>
+  classifySettlement(group.description ?? group.normalizedDescription ?? '', false) !== 'normal';
+
+const isRecurringGroupValid = (group: RecurringGroup): boolean =>
+  !isSettlementRecurringGroup(group) && (
+    Boolean(group.userOverride?.confirmed) || (
+    group.occurrences >= MIN_RECURRING_OCCURRENCES &&
+    group.frequency !== 'unknown' &&
+    group.frequency !== 'irregular'
+    )
+  );
+
+const hasLegacyPatternKey = (group: RecurringGroup): boolean =>
+  Boolean(group.merchantKey) && !/^(bank|card):(income|expense):/.test(group.merchantKey);
+
+type RecurringDateBasis = 'settlement' | 'event';
+
+type DetectRecurringTransactionsOptions = {
+  dateBasis?: RecurringDateBasis;
+};
+
+const getGroupOccurrenceDates = (
+  group: RecurringGroup,
+  dateBasis: RecurringDateBasis
+): string[] => {
+  return group.transactions
+    ?.map((transaction) => {
+      if (dateBasis === 'event') {
+        return transaction.eventDate || transaction.postingDate;
+      }
+
+      return transaction.postingDate || transaction.eventDate;
+    })
+    .filter(Boolean)
+    .sort() ?? [];
+};
+
+const getNextExpectedForGroup = (
+  group: RecurringGroup,
+  referenceDate: string,
+  dateBasis: RecurringDateBasis
+): string | null => {
+  if (!group.frequency || group.frequency === 'unknown' || group.frequency === 'irregular') {
+    return group.nextExpected;
+  }
+
+  const occurrenceDates = getGroupOccurrenceDates(group, dateBasis);
+  const lastSeen = occurrenceDates[occurrenceDates.length - 1];
+  if (!lastSeen) {
+    return group.nextExpected;
+  }
+
+  let anchor = group.anchor;
+  const recalculated = detectRecurringFrequency(occurrenceDates);
+  if (recalculated.freq !== 'unknown' && recalculated.freq !== 'irregular') {
+    anchor = recalculated.anchor;
+  }
+
+  if (!anchor) {
+    return group.nextExpected;
+  }
+
+  return nextUpcomingOccurrence(lastSeen, group.frequency as Frequency, anchor, referenceDate);
+};
+
 const liveDetect = async (user_id: string): Promise<RecurringGroup[]> => {
   const since = new Date();
   since.setMonth(since.getMonth() - 12);
   const sinceStr = since.toISOString().slice(0, 10); // "YYYY-MM-DD" — date field is stored as string
 
   const [regularTxns, cardTxns] = await Promise.all([
-    Transactions.find({ user_id, status: TransactionStatuses.Completed, date: { $gte: sinceStr } }).lean().exec(),
-    CardTransactions.find({ user_id, status: TransactionStatuses.Completed, date: { $gte: sinceStr } }).lean().exec(),
+    Transactions.find({ user_id, status: TransactionStatuses.Completed, eventDate: { $gte: sinceStr } }).lean().exec(),
+    CardTransactions.find({ user_id, status: TransactionStatuses.Completed, eventDate: { $gte: sinceStr } }).lean().exec(),
   ]);
+
+  // Settlement rows should never become recurring spending patterns, even if
+  // they are the only card-payment signal available in the bank ledger.
+  const hasCardData = cardTxns.length > 0;
+  const settlementTreatments = buildSettlementTreatmentMap(regularTxns, cardTxns);
 
   const all = [...regularTxns, ...cardTxns].map((t: any) => ({
     _id: t._id.toString(),
-    date: toDateStr(t.date),
-    processedDate: toDateStr(t.processedDate ?? t.date),
-    amount: t.amount ?? t.chargedAmount ?? 0,
-    absoluteAmount: Math.abs(t.amount ?? t.chargedAmount ?? 0),
+    eventDate: getEventDate(t),
+    postingDate: getPostingDate(t),
+    amount: getTransactionAmount(t),
+    absoluteAmount: Math.abs(getTransactionAmount(t)),
     description: t.description ?? '',
-    normalizedSource: t.description || t.memo || t.categoryDescription || t.channelName || '',
+    normalizedSource: getTransactionTextSource(t),
     companyId: t.companyId ?? '',
-    kind: getRecurringKind(t.amount ?? t.chargedAmount ?? 0),
+    kind: getRecurringKind(getTransactionAmount(t)),
+    source: (isCardProviderCompany(t.companyId) ? 'card' : 'bank') as 'bank' | 'card',
     type: t.type,
     installments: t.installments,
-  })).filter((t) => t.absoluteAmount > 0 && !isInstallmentLike(t));
+  })).filter((t) =>
+    t.absoluteAmount > 0 &&
+    !isInstallmentLike(t) &&
+    (settlementTreatments.get(t._id) ?? classifySettlement(t.description, hasCardData)) === 'normal'
+  );
 
-  // Group by normalized description
+  // Group by (source, kind, normalized description) so bank and card stay separate.
   const byNorm: Map<string, typeof all> = new Map();
   for (const t of all) {
     const normalizedDescription = normalize(t.normalizedSource);
     if (!normalizedDescription) continue;
-    const key = `${t.kind}:${descriptionKey(t.normalizedSource)}`;
+    const key = `${t.source}:${t.kind}:${descriptionKey(t.normalizedSource)}`;
     if (!byNorm.has(key)) byNorm.set(key, []);
     byNorm.get(key)!.push(t);
   }
@@ -331,14 +371,15 @@ const liveDetect = async (user_id: string): Promise<RecurringGroup[]> => {
   for (const [, items] of byNorm) {
     const clusters = clusterByAmount(items);
     for (const cluster of clusters) {
-      const months = new Set(cluster.map((t) => t.processedDate.slice(0, 7)));
+      if (cluster.length < MIN_RECURRING_OCCURRENCES) continue;
+      const months = new Set(cluster.map((t) => t.postingDate.slice(0, 7)));
       if (months.size < 2) continue;
 
       const avgAmount = cluster.reduce((s: number, t: any) => s + t.absoluteAmount, 0) / cluster.length;
       const totalSpent = cluster.reduce((s: number, t: any) => s + t.absoluteAmount, 0);
       const { frequency, nextExpected, anchor } = detectFrequency(cluster);
-      const companyId = cluster[0].companyId ?? '';
-      const source: 'bank' | 'card' = isCardProviderCompany(companyId) ? 'card' : 'bank';
+      if (frequency === 'irregular') continue;
+      const source = cluster[0].source;
 
       groups.push({
         description: cluster[0].description,
@@ -360,30 +401,66 @@ const liveDetect = async (user_id: string): Promise<RecurringGroup[]> => {
   return groups.sort((a, b) => b.totalSpent - a.totalSpent);
 };
 
-const detectRecurringTransactions = async (user_id: string): Promise<RecurringGroup[]> => {
+/**
+ * Recompute `nextExpected` for each group relative to today.
+ * This prevents stale dates when groups are served from cache.
+ */
+const refreshNextExpected = (
+  groups: RecurringGroup[],
+  dateBasis: RecurringDateBasis = 'settlement'
+): RecurringGroup[] => {
+  const today = new Date().toISOString().slice(0, 10);
+  return groups.map((group) => {
+    if (!group.frequency || group.frequency === 'unknown' || group.frequency === 'irregular') {
+      return group;
+    }
+
+    const next = getNextExpectedForGroup(group, today, dateBasis);
+    return { ...group, nextExpected: next ?? group.nextExpected };
+  });
+};
+
+const detectRecurringTransactions = async (
+  user_id: string,
+  options: DetectRecurringTransactionsOptions = {}
+): Promise<RecurringGroup[]> => {
+  const dateBasis = options.dateBasis ?? 'settlement';
+
   if (!config.enablePatternPersistence) {
-    return liveDetect(user_id);
+    const groups = await liveDetect(user_id);
+    return refreshNextExpected(groups, dateBasis);
   }
 
   // Persistence path — serve from cache → DB → live-detect with async recompute.
   try {
     const cached = await cacheService.get<RecurringGroup[]>(`patterns:${user_id}`);
-    if (cached) return cached;
+    if (cached) {
+      if (cached.some(hasLegacyPatternKey)) {
+        await cacheService.del(`patterns:${user_id}`);
+      } else {
+        const filteredCached = cached.filter(isRecurringGroupValid);
+        if (filteredCached.length !== cached.length) {
+          await cacheService.set(`patterns:${user_id}`, filteredCached, 600);
+        }
+        return refreshNextExpected(filteredCached, dateBasis);
+      }
+    }
 
     const { getRecurringGroups } = await import('./recurring/pattern-service');
-    const groups = await getRecurringGroups(user_id);
+    const groups = (await getRecurringGroups(user_id)).filter(isRecurringGroupValid);
     if (groups && groups.length > 0) {
       await cacheService.set(`patterns:${user_id}`, groups, 600);
-      return groups;
+      return refreshNextExpected(groups, dateBasis);
     }
 
     // Empty persisted state — fall back to live detection + async seed.
     const live = await liveDetect(user_id);
     await enqueuePatternRecomputeSafe(user_id);
-    return live;
+    return refreshNextExpected(live, dateBasis);
   } catch (err: any) {
     config.log?.warn?.({ err: err.message, user_id }, 'Persisted pattern read failed; falling back to live detect');
-    return liveDetect(user_id);
+    const live = await liveDetect(user_id);
+    return refreshNextExpected(live, dateBasis);
   }
 };
 

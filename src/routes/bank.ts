@@ -1,23 +1,24 @@
 import express, { NextFunction, Request, Response } from "express";
 import bankLogic from "../bll/banks";
 import { bankScrapingLimiter } from "../middlewares";
-import { ClientError } from "../models";
-import { scrapingQueue, transactionImportQueue } from "../queues";
+import { getScrapingQueue, getTransactionImportQueue } from "../queues";
 import { isRedisAvailable } from "../utils/connectRedis";
+import { createRedisQueueUnavailableError } from "../utils/redis-runtime";
+import { decryptBankCredentials } from "../utils/bank-credentials";
 import { ScrapingJobData } from "../workers/scraping-worker";
 
 const router = express.Router();
 
 const ensureQueueingAvailable = (feature: string): void => {
   if (!isRedisAvailable()) {
-    throw new ClientError(503, `${feature} is temporarily unavailable. Please try again later.`);
+    throw createRedisQueueUnavailableError(feature);
   }
 };
 
 router.get('/fetch-user-banks-accounts/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user_id = req.params.user_id;
-    const banks = await bankLogic.fetchMainAccount(user_id);
+    const banks = await bankLogic.fetchMainAccountResponse(user_id);
     return res.status(200).json(banks);
   } catch (err: any) {
     next(err);
@@ -36,7 +37,7 @@ router.get('/fetch-bank-account/:user_id/:bank_id', async (req: Request, res: Re
 
 router.post('/connect-bank/:user_id', bankScrapingLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    ensureQueueingAvailable('Bank sync');
+    ensureQueueingAvailable('bank-sync');
     const user_id = req.params.user_id;
     const details = req.body;
     const jobData: ScrapingJobData = {
@@ -45,7 +46,7 @@ router.post('/connect-bank/:user_id', bankScrapingLimiter, async (req: Request, 
       credentials: details,
       isRefresh: false,
     };
-    const job = await scrapingQueue.add('connect-bank', jobData);
+    const job = await getScrapingQueue().add('connect-bank', jobData);
     res.status(202).json({ jobId: job.id });
   } catch (err: any) {
     next(err);
@@ -54,10 +55,10 @@ router.post('/connect-bank/:user_id', bankScrapingLimiter, async (req: Request, 
 
 router.post('/import-transactions/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    ensureQueueingAvailable('Transaction import');
+    ensureQueueingAvailable('transaction-import');
     const user_id = req.params.user_id;
     const { transactions, companyId } = req.body;
-    const job = await transactionImportQueue.add('import-transactions', {
+    const job = await getTransactionImportQueue().add('import-transactions', {
       user_id,
       transactions,
       companyId,
@@ -70,7 +71,7 @@ router.post('/import-transactions/:user_id', async (req: Request, res: Response,
 
 router.put('/refresh-bank-data/:user_id', bankScrapingLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    ensureQueueingAvailable('Bank refresh');
+    ensureQueueingAvailable('bank-refresh');
     const user_id = req.params.user_id;
     const bank_id = req.body.bank_id;
 
@@ -79,7 +80,10 @@ router.put('/refresh-bank-data/:user_id', bankScrapingLimiter, async (req: Reque
       return res.status(400).json({ message: 'Bank credentials not found' });
     }
 
-    const decodedCredentials = await (await import('../utils/jwt')).default.fetchBankCredentialsFromToken(bankAccount.credentials);
+    const decodedCredentials = decryptBankCredentials(bankAccount.credentials);
+    if (!decodedCredentials) {
+      return res.status(400).json({ message: 'Bank credentials not found' });
+    }
     const credentials = {
       companyId: decodedCredentials.companyId,
       id: decodedCredentials.id,
@@ -96,7 +100,7 @@ router.put('/refresh-bank-data/:user_id', bankScrapingLimiter, async (req: Reque
       credentials,
       isRefresh: true,
     };
-    const job = await scrapingQueue.add('refresh-bank', jobData);
+    const job = await getScrapingQueue().add('refresh-bank', jobData);
     res.status(202).json({ jobId: job.id });
   } catch (err: any) {
     next(err);

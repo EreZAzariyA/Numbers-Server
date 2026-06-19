@@ -1,4 +1,3 @@
-import moment from "moment";
 import bunyan, { LogLevel } from 'bunyan';
 import { IUserModel } from "../models";
 import { CompanyTypes } from "israeli-bank-scrapers-for-e.a-servers";
@@ -30,7 +29,8 @@ export enum ErrorMessages {
   USER_BANK_ACCOUNT_NOT_FOUND = "Some error while trying to find user with this account. Please contact us.",
   CREDENTIALS_SAVED_NOT_LOADED = "Some error while trying to load saved credentials. Please contact us.",
   DECODED_CREDENTIALS_NOT_LOADED = "Some error while trying to load decoded credentials. Please contact us.",
-  TOKEN_EXPIRED = "Invalid or expired token"
+  TOKEN_EXPIRED = "Invalid or expired token",
+  GOOGLE_EMAIL_NOT_VERIFIED = "Your Google email is not verified. Please verify it with Google and try again."
 };
 
 export const SupportedCompanies = {
@@ -39,9 +39,11 @@ export const SupportedCompanies = {
   [CompanyTypes.behatsdaa]: CompanyTypes.behatsdaa,
   [CompanyTypes.leumi]: CompanyTypes.leumi,
   [CompanyTypes.visaCal]: CompanyTypes.visaCal,
-};
+} as const;
 
-export const CreditCardProviders = [
+type SupportedCompanyId = keyof typeof SupportedCompanies;
+
+const CreditCardProviders = [
   CompanyTypes.visaCal,
   CompanyTypes.max,
   CompanyTypes.behatsdaa,
@@ -79,9 +81,13 @@ export const getLogLevel = (envType: ENV_TYPE): LogLevel => {
   return envType === ENV_TYPE.DEVELOPMENT ? "debug" : "info";
 };
 
+export const isSupportedCompany = (company: string | undefined): company is SupportedCompanyId => {
+  return Boolean(company && company in SupportedCompanies);
+};
+
 export const isCardProviderCompany = (company: string | undefined) => {
-  if (!company) return false;
-  return CreditCardProviders.includes(CompanyTypes[company]) || false;
+  if (!isSupportedCompany(company)) return false;
+  return CreditCardProviders.includes(company);
 };
 
 export const getTotalTransactionsAmounts = (transactions: MainTransactionType[]): number => {
@@ -93,11 +99,8 @@ export const removeServicesFromUser = (user: IUserModel): IUserModel => {
   return rest;
 }
 
-export const isArray = (arr: unknown): boolean => {
-  return Array.isArray(arr);
-};
-export const isArrayAndNotEmpty = (arr: any): boolean => {
-  return isArray(arr) && arr.length > 0;
+export const isArrayAndNotEmpty = (arr: unknown): boolean => {
+  return Array.isArray(arr) && arr.length > 0;
 };
 
 export const getFutureDebitDate = (dateString: string | number): number => {
@@ -106,13 +109,5 @@ export const getFutureDebitDate = (dateString: string | number): number => {
     const year = parseInt(dateString?.substring(2)) || 0;
     return new Date(year, month, 1).valueOf() || 0;
   }
-  return moment(dateString).valueOf()
-};
-
-export const asNumString = (num: number = 0, digits: number = 2): string => {
-  if (!num || typeof num !== 'number') {
-    return '0'
-  }
-  const formattedNumber = num?.toFixed(digits);
-  return parseFloat(formattedNumber || '0').toLocaleString();
+  return new Date(dateString).valueOf();
 };

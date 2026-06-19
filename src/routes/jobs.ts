@@ -1,14 +1,20 @@
 import express, { NextFunction, Request, Response } from 'express';
-import { scrapingQueue, transactionImportQueue } from '../queues';
+import { getScrapingQueue, getTransactionImportQueue } from '../queues';
+import { isRedisAvailable } from '../utils/connectRedis';
+import { createRedisQueueUnavailableError } from '../utils/redis-runtime';
 
 const router = express.Router();
 
 router.get('/:jobId', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (!isRedisAvailable()) {
+      throw createRedisQueueUnavailableError('job-status');
+    }
+
     const { jobId } = req.params;
     const { queue: queueName } = req.query;
 
-    const queue = queueName === 'transaction-import' ? transactionImportQueue : scrapingQueue;
+    const queue = queueName === 'transaction-import' ? getTransactionImportQueue() : getScrapingQueue();
     const job = await queue.getJob(jobId);
 
     if (!job) {

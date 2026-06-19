@@ -1,4 +1,5 @@
 import { normalize, stripTrailingDigits } from './normalization';
+import { getCardLast4, getCounterparty, getMerchantId, getMcc, getProviderCategoryName } from '../../utils/transaction-semantics';
 
 /**
  * Build a deterministic composite key that groups transactions from the same
@@ -9,23 +10,33 @@ import { normalize, stripTrailingDigits } from './normalization';
  *  1. merchantId from raw (most reliable)
  *  2. mcc + companyId + normalized description
  *  3. companyId + memo
- *  4. companyId + category_id
+ *  4. companyId + normalized description
  *  5. normalized description with trailing digits stripped (fallback)
  */
 export const buildMerchantKey = (tx: any): string => {
-  if (tx.rawTransaction?.merchantId) {
-    return `mid:${tx.rawTransaction.merchantId}`;
+  const merchantId = getMerchantId(tx);
+  const mcc = getMcc(tx);
+  const counterparty = getCounterparty(tx);
+  const cardLast4 = getCardLast4(tx);
+  const descriptionFallback = tx.description || counterparty || getProviderCategoryName(tx) || '';
+  const normalizedDescriptionKey = stripTrailingDigits(normalize(descriptionFallback));
+
+  if (merchantId) {
+    return `mid:${merchantId}`;
   }
-  if (tx.rawTransaction?.mcc && tx.companyId) {
-    return `mcc:${tx.companyId}:${tx.rawTransaction.mcc}:${normalize(tx.description)}`;
+  if (mcc && tx.companyId) {
+    return `mcc:${tx.companyId}:${mcc}:${normalize(tx.description)}`;
   }
-  if (tx.companyId && tx.memo) {
-    return `cm:${tx.companyId}:${normalize(tx.memo)}`;
+  if (cardLast4 && normalizedDescriptionKey) {
+    return `card:${cardLast4}:${normalizedDescriptionKey}`;
   }
-  if (tx.companyId && tx.category_id) {
-    return `cc:${tx.companyId}:${tx.category_id}`;
+  if (tx.companyId && counterparty) {
+    return `cp:${tx.companyId}:${normalize(counterparty)}`;
   }
-  return `desc:${stripTrailingDigits(normalize(tx.description || tx.memo || tx.categoryDescription || tx.channelName || ''))}`;
+  if (tx.companyId && normalizedDescriptionKey) {
+    return `cd:${tx.companyId}:${normalizedDescriptionKey}`;
+  }
+  return `desc:${normalizedDescriptionKey}`;
 };
 
 /**
@@ -43,9 +54,9 @@ export const agreesOn = (a: any, b: any, minSignals = 2): boolean => {
   let count = 0;
   if (a.companyId && a.companyId === b.companyId) count++;
   if (a.category_id && a.category_id.toString() === b.category_id?.toString()) count++;
-  if (a.channel && a.channel === b.channel) count++;
-  if (a.channelName && a.channelName === b.channelName) count++;
-  if (a.rawTransaction?.mcc && a.rawTransaction.mcc === b.rawTransaction?.mcc) count++;
+  if (getCounterparty(a) && getCounterparty(a) === getCounterparty(b)) count++;
+  if (getMcc(a) && getMcc(a) === getMcc(b)) count++;
+  if (getMerchantId(a) && getMerchantId(a) === getMerchantId(b)) count++;
   const aFirst = firstToken(a.description ?? '');
   const bFirst = firstToken(b.description ?? '');
   if (aFirst && aFirst === bFirst) count++;
