@@ -1,6 +1,6 @@
 import { SupportedLanguage } from './tool-types';
 
-export const TRANSACTION_SOURCE_ENUM = ['account-transactions', 'card-transactions', 'transactions', 'creditCards'];
+export const TRANSACTION_SOURCE_ENUM = ['account-transactions', 'card-transactions'];
 export const TRANSACTION_FILTER_ENUM = ['all', ...TRANSACTION_SOURCE_ENUM];
 
 export const roundAmount = (value: number): number => Math.round((value || 0) * 100) / 100;

@@ -10,7 +10,8 @@ class JWTServices {
   private secretKey: string = config.secretKey;
 
   public getNewToken(user: IUserModel, customExpiresIn?: number): string {
-    const token = jwt.sign(user, this.secretKey, { expiresIn: customExpiresIn || config.loginExpiresIn });
+    const payload = typeof (user as any).toObject === 'function' ? (user as any).toObject() : { ...user };
+    const token = jwt.sign(payload, this.secretKey, { expiresIn: customExpiresIn || config.loginExpiresIn });
     return token;
   };
   

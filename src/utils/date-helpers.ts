@@ -66,3 +66,26 @@ export const monthBounds = (date: Date): MonthBounds => {
     end: `${monthStr}-${String(lastDay).padStart(2, '0')}`,
   };
 };
+
+export type CycleBounds = { cycleStr: string; start: string; end: string };
+
+// Pay-cycle bounds: cycle starts on `payDay` each month and runs until the day
+// before the next occurrence. If today is before the pay day, the cycle started
+// in the previous calendar month.
+export const cycleBounds = (payDay: number, ref: Date = new Date()): CycleBounds => {
+  const day = Math.min(Math.max(1, Math.floor(payDay)), 28);
+  const refYear = ref.getFullYear();
+  const refMonth = ref.getMonth();
+  const refDay = ref.getDate();
+
+  const cycleYear = refDay >= day ? refYear : (refMonth === 0 ? refYear - 1 : refYear);
+  const cycleMonth = refDay >= day ? refMonth : (refMonth === 0 ? 11 : refMonth - 1);
+
+  const start = ymd(cycleYear, cycleMonth, day);
+
+  const nextYear = cycleMonth === 11 ? cycleYear + 1 : cycleYear;
+  const nextMonth = cycleMonth === 11 ? 0 : cycleMonth + 1;
+  const end = addDays(ymd(nextYear, nextMonth, day), -1);
+
+  return { cycleStr: start.slice(0, 7), start, end };
+};

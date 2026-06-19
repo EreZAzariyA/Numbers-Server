@@ -3,9 +3,19 @@ import { createOllamaClient } from '../utils/ollama-client';
 import { UserAiSettings, type AiProvider, type IUserAiSettingsCollection } from '../collections/UserAiSettings';
 import { ClientError } from '../models';
 import { decryptAiSecret, encryptAiSecret, maskAiSecret } from '../utils/ai-secrets';
-import { checkClaudeKey, checkGeminiKey, type ProviderHealthStatus } from '../utils/ai-provider-health';
+import {
+  checkClaudeKey,
+  checkGeminiKey,
+  listClaudeModels as fetchClaudeModels,
+  listGeminiModels as fetchGeminiModels,
+  type ProviderHealthStatus,
+} from '../utils/ai-provider-health';
 
 const OLLAMA_API_KEY = 'ollama';
+
+export type EmbeddingProviderConfig =
+  | { provider: 'gemini'; apiKey: string; model: string }
+  | { provider: 'ollama'; model: string };
 
 type AiProviderSource = 'user' | 'env' | 'missing';
 
@@ -43,13 +53,19 @@ type ResolvedAiProvider = {
 const PROVIDERS: AiProvider[] = ['ollama', 'gemini', 'claude'];
 const LANGUAGES = ['en', 'he'];
 const HEALTH_CACHE_TTL_SECONDS = 60;
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 const getOllamaModel = (): string | null => process.env.OLLAMA_MODEL || null;
-const getGeminiModel = (): string => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const getClaudeModel = (): string => process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-latest';
 
 const resolveOllamaModel = (doc?: IUserAiSettingsCollection | null): string | null =>
   doc?.ollamaModel || getOllamaModel();
+
+const resolveGeminiModel = (doc?: IUserAiSettingsCollection | null): string =>
+  doc?.geminiModel || DEFAULT_GEMINI_MODEL;
+
+const resolveClaudeModel = (doc?: IUserAiSettingsCollection | null): string =>
+  doc?.claudeModel || DEFAULT_CLAUDE_MODEL;
 
 // Thinking (reasoning) is on by default; only an explicit `false` disables it.
 const resolveOllamaThinking = (doc?: IUserAiSettingsCollection | null): boolean =>
@@ -78,14 +94,14 @@ class AiSettingsLogic {
         available: !!geminiUserKey,
         source: geminiUserKey ? 'user' : 'missing',
         maskedKey: geminiUserKey ? maskAiSecret(geminiUserKey) : null,
-        model: getGeminiModel(),
+        model: resolveGeminiModel(doc),
       },
       claude: {
         provider: 'claude',
         available: !!claudeUserKey,
         source: claudeUserKey ? 'user' : 'missing',
         maskedKey: claudeUserKey ? maskAiSecret(claudeUserKey) : null,
-        model: getClaudeModel(),
+        model: resolveClaudeModel(doc),
       },
     };
   }
@@ -204,6 +220,40 @@ class AiSettingsLogic {
     }
   }
 
+  async listGeminiModels(user_id: string): Promise<string[]> {
+    const doc = await UserAiSettings.findOne({ user_id }).exec();
+    const apiKey = decryptAiSecret(doc?.geminiApiKey);
+    if (!apiKey) throw new ClientError(400, 'Gemini API key is not configured.');
+    return fetchGeminiModels(apiKey);
+  }
+
+  async listClaudeModels(user_id: string): Promise<string[]> {
+    const doc = await UserAiSettings.findOne({ user_id }).exec();
+    const apiKey = decryptAiSecret(doc?.claudeApiKey);
+    if (!apiKey) throw new ClientError(400, 'Claude API key is not configured.');
+    return fetchClaudeModels(apiKey);
+  }
+
+  async updateProviderModel(user_id: string, provider: Extract<AiProvider, 'gemini' | 'claude'>, model: string): Promise<AiSettingsResponse> {
+    if (provider !== 'gemini' && provider !== 'claude') {
+      throw new ClientError(400, 'Provider must be gemini or claude.');
+    }
+    const trimmedModel = model?.trim();
+    if (!trimmedModel) {
+      throw new ClientError(400, 'Model is required.');
+    }
+
+    const field = provider === 'gemini' ? 'geminiModel' : 'claudeModel';
+    await UserAiSettings.findOneAndUpdate(
+      { user_id },
+      { $set: { [field]: trimmedModel }, $setOnInsert: { user_id } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    ).exec();
+
+    await this.invalidateUserAiCaches(user_id);
+    return this.getSettings(user_id);
+  }
+
   async updateOllamaModel(user_id: string, model: string): Promise<AiSettingsResponse> {
     const trimmedModel = model?.trim();
     if (!trimmedModel) {
@@ -304,6 +354,25 @@ class AiSettingsLogic {
     };
   }
 
+  async resolveEmbeddingProvider(user_id: string): Promise<EmbeddingProviderConfig | null> {
+    const doc = await UserAiSettings.findOne({ user_id }).exec();
+
+    // Gemini is preferred: fixed 768-dim output, no extra model setup required.
+    const geminiKey = decryptAiSecret(doc?.geminiApiKey);
+    if (geminiKey) {
+      return { provider: 'gemini', apiKey: geminiKey, model: 'text-embedding-004' };
+    }
+
+    // Fall back to Ollama when configured. The chat model is reused; the caller
+    // validates the returned dimension and skips saving if it does not match 768.
+    const ollamaModel = resolveOllamaModel(doc);
+    if (ollamaModel) {
+      return { provider: 'ollama', model: ollamaModel };
+    }
+
+    return null;
+  }
+
   async updateOllamaThinking(user_id: string, enabled: boolean): Promise<AiSettingsResponse> {
     await UserAiSettings.findOneAndUpdate(
       { user_id },
@@ -318,6 +387,6 @@ class AiSettingsLogic {
 
 const aiSettingsLogic = new AiSettingsLogic();
 
-export { getClaudeModel, getGeminiModel, getOllamaModel };
+export { getOllamaModel };
 export type { AiProvider };
 export default aiSettingsLogic;

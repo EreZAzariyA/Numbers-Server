@@ -6,7 +6,8 @@ const router = express.Router();
 router.get('/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { user_id } = req.params;
-    const result = await calculateCashFlowProjection(user_id);
+    const force = req.query.force === 'true';
+    const result = await calculateCashFlowProjection(user_id, force);
     res.status(200).json(result);
   } catch (err: any) {
     next(err);

@@ -176,28 +176,33 @@ export const createMutationTools = (host: ToolHost): AgentToolDefinition[] => {
       },
       {
         name: 'update_category_budget',
-        description: 'Stage updates to a category budget limit.',
+        description: 'Stage updates to a category budget limit. Supply at least one of category_id or category_name. maximum_amount is optional when only toggling active.',
         mode: 'mutate',
         schema: {
           type: 'object',
           properties: {
             category_id: { type: 'string', description: 'Category id.' },
             category_name: { type: 'string', description: 'Category name if the id is unknown.' },
-            maximum_amount: { type: 'number', description: 'Budget cap in shekels.' },
+            maximum_amount: { type: 'number', description: 'Budget cap in shekels. Required when setting or updating the cap.' },
             active: { type: 'boolean', description: 'Whether the budget cap should stay active.' },
           },
-          required: ['maximum_amount'],
         },
-        summarize: (args) => `Update category budget to ₪${args.maximum_amount}.`,
+        summarize: (args) => args.maximum_amount !== undefined
+          ? `Update category budget to ₪${args.maximum_amount}.`
+          : `Toggle category budget active: ${args.active}.`,
         execute: async (args, context) => {
           const category = await host.resolveCategory(context.user_id, {
             category_id: args.category_id,
             category_name: args.category_name,
           });
-          category.maximumSpentAllowed = {
-            active: args.active ?? true,
-            maximumAmount: Number(args.maximum_amount),
-          };
+          if (args.maximum_amount !== undefined) {
+            category.maximumSpentAllowed = {
+              active: args.active ?? true,
+              maximumAmount: Number(args.maximum_amount),
+            };
+          } else if (args.active !== undefined && category.maximumSpentAllowed) {
+            category.maximumSpentAllowed.active = args.active;
+          }
           const updated = await categoriesLogic.updateCategory(category, context.user_id);
 
           return {
@@ -206,56 +211,66 @@ export const createMutationTools = (host: ToolHost): AgentToolDefinition[] => {
             maximumAmount: updated.maximumSpentAllowed?.maximumAmount ?? Number(args.maximum_amount),
           };
         },
-        buildResultReply: (_, result, language) => localize(
-          language,
-          `Updated the budget for **${result.name}** to **₪${roundAmount(result.maximumAmount)}**.`,
-          `עדכנתי את התקציב של **${result.name}** ל-**₪${roundAmount(result.maximumAmount)}**.`,
-        ),
+        buildResultReply: (args, result, language) => result.maximumAmount !== undefined
+          ? localize(
+            language,
+            `Updated the budget for **${result.name}** to **₪${roundAmount(result.maximumAmount)}**.`,
+            `עדכנתי את התקציב של **${result.name}** ל-**₪${roundAmount(result.maximumAmount)}**.`,
+          )
+          : localize(
+            language,
+            `Updated the budget settings for **${result.name}**.`,
+            `עדכנתי את הגדרות התקציב של **${result.name}**.`,
+          ),
       },
       {
         name: 'confirm_recurring_pattern',
-        description: 'Stage confirmation for a recurring pattern.',
+        description: 'Stage confirmation for a recurring pattern. Pass pattern_name (from get_recurring_commitments) as a hint so the confirmation card shows a readable label.',
         mode: 'mutate',
         schema: {
           type: 'object',
           properties: {
             pattern_id: { type: 'string', description: 'Recurring pattern id.' },
+            pattern_name: { type: 'string', description: 'Human-readable pattern name (merchant / description) for the confirmation card.' },
           },
           required: ['pattern_id'],
         },
-        summarize: (args) => `Confirm recurring pattern ${args.pattern_id}.`,
+        summarize: (args) => `Confirm recurring pattern: ${args.pattern_name || args.pattern_id}.`,
         execute: async (args, context) => {
           const updated = await overridePattern(context.user_id, args.pattern_id, { confirmed: true });
           if (!updated) throw new ClientError(404, 'Recurring pattern not found.');
-          return { pattern_id: args.pattern_id };
+          const patternName = (updated as any).signals?.descriptionVariants?.[0] ?? (updated as any).merchantKey ?? args.pattern_id;
+          return { pattern_id: args.pattern_id, pattern_name: patternName };
         },
         buildResultReply: (_, result, language) => localize(
           language,
-          `Confirmed the recurring pattern **${result.pattern_id}**.`,
-          `אישרתי את הדפוס החוזר **${result.pattern_id}**.`,
+          `Confirmed the recurring pattern **${result.pattern_name || result.pattern_id}**.`,
+          `אישרתי את הדפוס החוזר **${result.pattern_name || result.pattern_id}**.`,
         ),
       },
       {
         name: 'disable_recurring_pattern',
-        description: 'Stage disabling of a recurring pattern.',
+        description: 'Stage disabling of a recurring pattern. Pass pattern_name (from get_recurring_commitments) as a hint so the confirmation card shows a readable label.',
         mode: 'mutate',
         schema: {
           type: 'object',
           properties: {
             pattern_id: { type: 'string', description: 'Recurring pattern id.' },
+            pattern_name: { type: 'string', description: 'Human-readable pattern name (merchant / description) for the confirmation card.' },
           },
           required: ['pattern_id'],
         },
-        summarize: (args) => `Disable recurring pattern ${args.pattern_id}.`,
+        summarize: (args) => `Disable recurring pattern: ${args.pattern_name || args.pattern_id}.`,
         execute: async (args, context) => {
           const updated = await overridePattern(context.user_id, args.pattern_id, { disabled: true });
           if (!updated) throw new ClientError(404, 'Recurring pattern not found.');
-          return { pattern_id: args.pattern_id };
+          const patternName = (updated as any).signals?.descriptionVariants?.[0] ?? (updated as any).merchantKey ?? args.pattern_id;
+          return { pattern_id: args.pattern_id, pattern_name: patternName };
         },
         buildResultReply: (_, result, language) => localize(
           language,
-          `Disabled the recurring pattern **${result.pattern_id}**.`,
-          `נטרלתי את הדפוס החוזר **${result.pattern_id}**.`,
+          `Disabled the recurring pattern **${result.pattern_name || result.pattern_id}**.`,
+          `נטרלתי את הדפוס החוזר **${result.pattern_name || result.pattern_id}**.`,
         ),
       },
       {
@@ -352,7 +367,7 @@ export const createMutationTools = (host: ToolHost): AgentToolDefinition[] => {
       },
       {
         name: 'edit_transaction',
-        description: 'Stage edits to an existing transaction.',
+        description: 'Stage edits to an existing transaction (description, amount, or dates). To change the category, use reassign_transaction_category instead.',
         mode: 'mutate',
         schema: {
           type: 'object',
@@ -367,8 +382,6 @@ export const createMutationTools = (host: ToolHost): AgentToolDefinition[] => {
             amount: { type: 'number', description: 'Updated signed amount.' },
             event_date: { type: 'string', description: 'Updated event date in YYYY-MM-DD format.' },
             posting_date: { type: 'string', description: 'Updated posting date in YYYY-MM-DD format.' },
-            category_id: { type: 'string', description: 'Updated category id.' },
-            category_name: { type: 'string', description: 'Updated category name when id is unknown.' },
           },
           required: ['transaction_id'],
         },
@@ -379,21 +392,14 @@ export const createMutationTools = (host: ToolHost): AgentToolDefinition[] => {
           amount: args.amount,
           event_date: args.event_date,
           posting_date: args.posting_date,
-          category_id: args.category_id,
-          category_name: args.category_name,
         }),
         execute: async (args, context) => {
           const { transaction, type } = await host.resolveTransaction(context.user_id, args.transaction_id, args.transaction_type);
-          const updatedCategory = args.category_id || args.category_name
-            ? await host.resolveCategory(context.user_id, { category_id: args.category_id, category_name: args.category_name })
-            : null;
           const hasAnyUpdate = [
             args.description,
             args.amount,
             args.event_date,
             args.posting_date,
-            args.category_id,
-            args.category_name,
           ].some((value) => value !== undefined);
           if (!hasAnyUpdate) {
             throw new ClientError(400, 'No transaction update fields were provided.');
@@ -405,9 +411,6 @@ export const createMutationTools = (host: ToolHost): AgentToolDefinition[] => {
           transaction.postingDate = args.posting_date ?? transaction.postingDate;
           transaction.date = args.event_date ?? transaction.date ?? transaction.eventDate;
           transaction.processedDate = args.posting_date ?? transaction.processedDate ?? transaction.postingDate;
-          if (updatedCategory?._id) {
-            transaction.category_id = updatedCategory._id as MainTransactionType['category_id'];
-          }
 
           const updated = await transactionsLogic.updateTransaction(context.user_id, transaction, type);
 

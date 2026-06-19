@@ -193,8 +193,8 @@ class DevelopmentConfig extends Config {
     this.isProduction = false;
     this.loginExpiresIn = 30 * 60 * 60;
     this.refreshTokenExpiresIn = 7 * 24 * 60 * 60; // 7 days — outlives the 30h access token
-    this.mongoConnectionString = "mongodb://127.0.0.1:27017/numbers";
-    this.redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    this.mongoConnectionString = process.env.MONGO_CONNECTION_STRING;
+    this.redisUrl = process.env.REDIS_URL;
     this.corsUrls = ['http://127.0.0.1:3000', 'http://localhost:3000', 'http://localhost:8080'];
     this.log = getLogger(name, version, getLogLevel(ENV_TYPE.DEVELOPMENT));
     this.secretKey = 'secret';

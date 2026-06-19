@@ -1,6 +1,8 @@
 import { Content, GoogleGenerativeAI } from '@google/generative-ai';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { UserModel } from '../models/user-model';
+import { cycleBounds } from '../utils/date-helpers';
 import {
   AgentPendingActions,
   CardTransactions,
@@ -46,6 +48,7 @@ import {
 } from './agent/tool-helpers';
 import { createReadOnlyTools } from './agent/read-tools';
 import { createMutationTools } from './agent/mutation-tools';
+import agentMemory from './agent-memory';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -198,7 +201,18 @@ class AgentChatLogic {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const history = (await this.loadHistory(user_id)).messages;
+    const [history, pastMemories, userDoc] = await Promise.all([
+      this.loadHistory(user_id).then((h) => h.messages),
+      agentMemory.recall(user_id, message),
+      UserModel.findById(user_id).select('config.payDay').lean().exec(),
+    ]);
+    const payDay = userDoc?.config?.payDay;
+    const cycleBlock = payDay
+      ? (() => {
+          const c = cycleBounds(payDay);
+          return `\nThe user's pay cycle runs from ${c.start} to ${c.end} (pay day is the ${payDay}th of each month). Use this range instead of the calendar month when they ask about "this month" or current spending.`;
+        })()
+      : '';
     const updatedHistory: ChatMessage[] = [...history, { role: 'user', content: message }];
     const stagedActionRef = { value: null as PendingActionView | null };
     const createToolUsageRef = () => ({
@@ -207,6 +221,10 @@ class AgentChatLogic {
       usedReadTool: false,
     });
     const shouldRequireGroundedData = this.shouldRequireGroundedData(message);
+
+    const memoryBlock = pastMemories.length > 0
+      ? `\n\nRelevant context from past conversations:\n${pastMemories.map((m, i) => `${i + 1}. ${m}`).join('\n')}`
+      : '';
 
     const systemInstruction = `You are a personal finance assistant for an Israeli finance app.
 Always respond in ${normalizedLanguage === 'he' ? 'Hebrew' : 'English'}.
@@ -217,17 +235,18 @@ Mutation tools never execute immediately. When you call a mutation tool, the ser
 When a tool says confirmation is required:
 - Explain what was prepared
 - Tell the user to use the confirmation controls in the chat UI
+- Tell the user the confirmation will expire in 10 minutes
 - Do not ask the user to type "yes"
-- Do not stage more than one action in the same answer
-When the user says account-transactions, account transactions, or bank transactions, they mean the bank/account ledger ("transactions").
-When the user says card-transactions, card transactions, or credit-card transactions, they mean the credit-card ledger ("creditCards").
+- Call only one mutation tool per turn — never stage two actions in the same answer
+When referring to transaction sources, always use "account-transactions" for bank/account entries and "card-transactions" for credit-card entries. These are the exact values to pass as the transaction_type argument.
 Prefer the explicit transaction source argument when a transaction tool supports it.
 Format your responses in Markdown:
 - Use **bold** for amounts, merchant names, and key figures
 - Use tables when comparing multiple items. Output raw GFM tables and never wrap them in code fences
 - Use bullet lists for multiple items
+- When presenting transaction lists, show at most 10 rows. If there are more, state the total count and ask the user to narrow the filter
 - Keep responses concise
-Use ₪ for amounts. Today's date is ${today}.`;
+Use ₪ for amounts. Today's date is ${today}.${cycleBlock}${memoryBlock}`;
     const strictSystemInstruction = `${systemInstruction}
 For the user's latest request, you must call at least one relevant read tool before answering.
 If you cannot verify the answer from a tool result, say that you could not verify it from live finance data and do not guess.`;
@@ -276,6 +295,7 @@ If you cannot verify the answer from a tool result, say that you could not verif
 
       emitProgress('finalizing-response');
       await this.saveHistory(user_id, [...updatedHistory, { role: 'assistant', content: reply }]);
+      agentMemory.save(user_id, message, reply).catch(() => {});
       emitProgress('completed', undefined, 'complete');
       return { reply, pendingAction: stagedActionRef.value };
     } catch (err: unknown) {

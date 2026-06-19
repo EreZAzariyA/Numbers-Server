@@ -8,7 +8,9 @@ export interface IUserAiSettingsCollection extends Document {
   ollamaModel?: string;
   ollamaThinking?: boolean;
   geminiApiKey?: string;
+  geminiModel?: string;
   claudeApiKey?: string;
+  claudeModel?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,7 +40,15 @@ const UserAiSettingsSchema = new Schema<IUserAiSettingsCollection>({
     type: String,
     trim: true,
   },
+  geminiModel: {
+    type: String,
+    trim: true,
+  },
   claudeApiKey: {
+    type: String,
+    trim: true,
+  },
+  claudeModel: {
     type: String,
     trim: true,
   },

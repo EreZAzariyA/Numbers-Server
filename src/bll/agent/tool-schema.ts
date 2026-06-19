@@ -14,7 +14,7 @@ const convertProperty = (
     result.properties = Object.fromEntries(
       Object.entries(property.properties ?? {}).map(([key, value]) => [key, convertProperty(value, mapType)]),
     );
-    result.required = property.required ?? [];
+    if (property.required?.length) result.required = property.required;
   }
   if (property.type === 'array' && property.items) {
     result.items = convertProperty(property.items, mapType);

@@ -7,6 +7,15 @@ type ProviderHealthResult = {
   error?: string;
 };
 
+type GeminiModelEntry = {
+  name: string;
+  supportedGenerationMethods: string[];
+};
+
+type GeminiModelsResponse = {
+  models?: GeminiModelEntry[];
+};
+
 const HEALTH_CHECK_TIMEOUT_MS = 8000;
 const MAX_ERROR_LENGTH = 200;
 const GEMINI_MODELS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -59,4 +68,32 @@ export const checkClaudeKey = async (apiKey: string): Promise<ProviderHealthResu
   } catch (err: unknown) {
     return { status: 'error', error: sanitizeError(toErrorMessage(err)) };
   }
+};
+
+export const listGeminiModels = async (apiKey: string): Promise<string[]> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+  try {
+    const response = await fetch(
+      `${GEMINI_MODELS_ENDPOINT}?key=${encodeURIComponent(apiKey)}`,
+      { signal: controller.signal },
+    );
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+      throw new Error(body?.error?.message || `HTTP ${response.status}`);
+    }
+    const data = (await response.json()) as GeminiModelsResponse;
+    return (data.models ?? [])
+      .filter((m) => m.supportedGenerationMethods.includes('generateContent'))
+      .map((m) => m.name.replace('models/', ''))
+      .sort();
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+export const listClaudeModels = async (apiKey: string): Promise<string[]> => {
+  const client = new Anthropic({ apiKey, maxRetries: 0, timeout: HEALTH_CHECK_TIMEOUT_MS });
+  const page = await client.models.list();
+  return page.data.map((m) => m.id).sort();
 };

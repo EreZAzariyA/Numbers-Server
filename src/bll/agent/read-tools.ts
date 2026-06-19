@@ -141,7 +141,8 @@ export const createReadOnlyTools = (host: ToolHost): AgentToolDefinition[] => {
         },
         summarize: () => 'Review the top merchants.',
         execute: async (args, context) => {
-          const { limit = 5, month, year } = args;
+          const { month, year } = args;
+          const safeLimit = Math.min(Math.max(Number(args.limit || 5), 1), 50);
           const { start, end } = host.getDateRange(month, year);
           const entries = await host.getUnifiedExpenseEntries(context.user_id, start, end);
           const byMerchant: Record<string, number> = {};
@@ -153,7 +154,7 @@ export const createReadOnlyTools = (host: ToolHost): AgentToolDefinition[] => {
 
           return Object.entries(byMerchant)
             .sort(([, left], [, right]) => right - left)
-            .slice(0, limit)
+            .slice(0, safeLimit)
             .map(([name, total]) => ({ name, total: roundAmount(total) }));
         },
       },
@@ -177,7 +178,8 @@ export const createReadOnlyTools = (host: ToolHost): AgentToolDefinition[] => {
         },
         summarize: () => 'Review recent transactions.',
         execute: async (args, context) => {
-          const { merchant_name, limit = 10, start_date, end_date } = args;
+          const { merchant_name, start_date, end_date } = args;
+          const safeLimit = Math.min(Math.max(Number(args.limit || 10), 1), 100);
           const transactionType = host.normalizeTransactionType(args.transaction_type);
           const now = new Date();
           const start = start_date || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
@@ -203,7 +205,7 @@ export const createReadOnlyTools = (host: ToolHost): AgentToolDefinition[] => {
 
           return filtered
             .sort((left, right) => right.transaction.eventDate.localeCompare(left.transaction.eventDate))
-            .slice(0, limit)
+            .slice(0, safeLimit)
             .map(({ source, transaction }) => ({
               id: transaction._id.toString(),
               type: source,

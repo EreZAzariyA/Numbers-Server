@@ -1,6 +1,7 @@
 import { IUserModel, UserModel } from "../models/user-model";
 import { Languages, ThemeColors } from "../utils/helpers";
 import cacheService from "../utils/cache-service";
+import { ClientError } from "../models";
 
 class UsersLogic {
   fetchUserProfile = async (user_id: string):Promise<IUserModel> => {
@@ -28,6 +29,16 @@ class UsersLogic {
     const selectedLang = res.config?.lang || Languages.EN;
     await cacheService.del(`user-profile:${user_id}`);
     return selectedLang;
+  };
+
+  changePayDay = async (user_id: string, payDay: number): Promise<number> => {
+    const clamped = Math.min(Math.max(1, Math.floor(payDay)), 28);
+    const res = await UserModel.findByIdAndUpdate(user_id, {
+      $set: { 'config.payDay': clamped }
+    }, { new: true }).select('config.payDay').exec();
+    if (!res) throw new ClientError(404, 'User not found.');
+    await cacheService.del(`user-profile:${user_id}`);
+    return res.config.payDay ?? clamped;
   };
 };
 

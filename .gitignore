@@ -1,5 +1,5 @@
 /node_modules
 .vercel
 .env
-docs/ai-prompt-evaluation.md
-docs/watch-scraper-novnc.md
+docs
+build

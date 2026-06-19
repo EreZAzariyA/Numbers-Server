@@ -49,7 +49,8 @@ export interface IUserModel extends Document {
   emails: [EmailType];
   config: {
     'theme-color': string,
-    lang: string
+    lang: string,
+    payDay?: number,
   };
   loginAttempts: {
     lastAttemptDate: number,
@@ -93,6 +94,11 @@ const UserSchema = new Schema<IUserModel>({
     lang: {
       type: String,
       default: Languages.EN
+    },
+    payDay: {
+      type: Number,
+      min: 1,
+      max: 28,
     },
   },
   loginAttempts: {

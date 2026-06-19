@@ -25,7 +25,7 @@ const createQueue = (name: string): Queue => {
 
 export const getRedisConnection = (): IORedis => {
   if (!redisConnection) {
-    redisConnection = new IORedis(config.redisUrl || 'redis://localhost:6379', {
+    redisConnection = new IORedis(config.redisUrl, {
       maxRetriesPerRequest: null,
       lazyConnect: true,
       enableOfflineQueue: false,

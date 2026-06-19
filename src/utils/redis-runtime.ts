@@ -29,7 +29,7 @@ const REDIS_SESSION_MESSAGE = 'Session services are temporarily unavailable. Ple
 const featureModeState = new Map<string, boolean | null>();
 const connectionState = new Map<string, RedisConnectionState>();
 
-export const getRedisTarget = (redisUrl: string = config.redisUrl || 'redis://localhost:6379'): RedisTarget => {
+export const getRedisTarget = (redisUrl: string = config.redisUrl): RedisTarget => {
   try {
     const parsed = new URL(redisUrl);
     const port = parsed.port ? parseInt(parsed.port, 10) : 6379;

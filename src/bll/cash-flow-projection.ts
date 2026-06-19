@@ -86,11 +86,14 @@ const getMatchingActualIndex = (
 };
 
 export const calculateCashFlowProjection = async (
-  user_id: string
+  user_id: string,
+  force = false
 ): Promise<CashFlowProjectionResponse> => {
   const cacheKey = `cashFlow:${user_id}`;
-  const cached = await cacheService.get<CashFlowProjectionResponse>(cacheKey);
-  if (cached) return cached;
+  if (!force) {
+    const cached = await cacheService.get<CashFlowProjectionResponse>(cacheKey);
+    if (cached) return cached;
+  }
 
   const now = new Date();
   const { start: currentMonthStart, end: monthEnd } = monthBounds(now);

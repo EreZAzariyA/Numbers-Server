@@ -15,7 +15,7 @@ Local backend runs should point at:
 
 ```env
 MONGO_CONNECTION_STRING=mongodb://127.0.0.1:27017/numbers
-REDIS_URL=redis://localhost:6379
+REDIS_URL=redis://127.0.0.1:6379
 ```
 
 If you want the whole app stack in Docker instead, use:
