@@ -8,7 +8,8 @@
     "prompt:evaluate": "ts-node scripts/evaluate-ai-prompts.ts",
     "migrate:semantic-transactions": "ts-node scripts/backfill-semantic-transactions.ts",
     "migrate:normalize-transaction-dates": "ts-node scripts/normalize-transaction-dates.ts",
-    "migrate:encrypt-credentials": "ts-node scripts/encrypt-bank-credentials.ts"
+    "migrate:encrypt-credentials": "ts-node scripts/encrypt-bank-credentials.ts",
+    "admin:promote": "ts-node scripts/promote-admin.ts"
   },
   "author": "",
   "license": "ISC",

@@ -3,8 +3,6 @@ require('dotenv').config();
 import mongoose from 'mongoose';
 import { Transactions, CardTransactions } from '../src/collections';
 import config from '../src/utils/config';
-import { isCardProviderCompany } from '../src/utils/helpers';
-import { classifySettlement } from '../src/utils/settlement-detection';
 import {
   getCardLast4,
   getCounterparty,
@@ -13,10 +11,8 @@ import {
   getMerchantId,
   getPostingDate,
   getProviderCategoryName,
-  getTransactionAmount,
-  getTransactionTextSource,
 } from '../src/utils/transaction-semantics';
-import { TransactionTypes } from 'israeli-bank-scrapers-for-e.a-servers/lib/transactions';
+import { inferSemanticType } from '../src/utils/semantic-type';
 
 type TransactionDoc = {
   _id: mongoose.Types.ObjectId;
@@ -29,27 +25,6 @@ type TransactionDoc = {
 };
 
 const BATCH_SIZE = 500;
-
-const inferSemanticType = (transaction: TransactionDoc): string => {
-  const text = getTransactionTextSource(transaction);
-  if (classifySettlement(text, false) !== 'normal') {
-    return 'card_settlement';
-  }
-
-  if (
-    transaction.type === TransactionTypes.Installments ||
-    (transaction.installments?.total ?? 0) > 1
-  ) {
-    return 'installment';
-  }
-
-  const amount = getTransactionAmount(transaction);
-  if (amount >= 0) {
-    return isCardProviderCompany(transaction.companyId) ? 'refund' : 'deposit';
-  }
-
-  return isCardProviderCompany(transaction.companyId) ? 'merchant_charge' : 'bank_transfer';
-};
 
 const buildUpdate = (transaction: TransactionDoc) => {
   const merchantId = getMerchantId(transaction) || undefined;

@@ -10,9 +10,10 @@ import { toDateStr, addDays, diffDays, daysInMonth, monthBounds } from '../utils
 import { round2, sumIncomeExpense } from '../utils/money';
 import { normalize } from './recurring/normalization';
 import { isCardProviderCompany } from '../utils/helpers';
-import { classifySettlement } from '../utils/settlement-detection';
+import { buildSettlementTreatmentMap } from '../utils/settlement-detection';
 import { getEventDate, getPostingDate, getTransactionAmount, getTransactionTextSource } from '../utils/transaction-semantics';
 import { fetchCompletedTransactions } from './shared/transaction-queries';
+import { filterAndTallySettlements } from './shared/settlement-filter';
 
 const getCurrentMonthActualFilter = (currentMonthStart: string, todayStr: string) => ({
   $or: [
@@ -107,14 +108,24 @@ export const calculateCashFlowProjection = async (
     getCurrentMonthActualFilter(currentMonthStart, todayStr),
   );
 
-  // Exclude credit-card settlement rows when granular card data exists.
+  // Exclude credit-card settlement rows when granular card data exists. Uses the
+  // shared contextual map (text + statement-amount matching) so detection is
+  // consistent with financial-health, forecast, the agent and comparison.
   const hasCardData = cardTxns.length > 0;
+  const settlementTreatments = buildSettlementTreatmentMap(regularTxns, cardTxns);
+  const settlementDataQuality = { lowConfidenceSettlementCount: 0, lowConfidenceSettlementSpend: 0 };
 
-  const allCurrent: CurrentTransactionEvent[] = [...regularTxns, ...cardTxns]
-    .filter((t: any) => {
-      const desc = getTransactionTextSource(t);
-      return classifySettlement(desc, hasCardData) !== 'exclude';
-    })
+  const allCurrent: CurrentTransactionEvent[] = filterAndTallySettlements(
+    [...regularTxns, ...cardTxns],
+    settlementTreatments,
+    hasCardData,
+    {
+      id: (t: any) => t._id?.toString?.() ?? '',
+      text: (t: any) => getTransactionTextSource(t),
+      amount: (t: any) => getTransactionAmount(t),
+    },
+    settlementDataQuality,
+  )
     .map((t: any) => {
       const amount = getTransactionAmount(t);
       const descSource = getTransactionTextSource(t);

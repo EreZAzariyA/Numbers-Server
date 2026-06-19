@@ -191,36 +191,56 @@ export const createMutationTools = (host: ToolHost): AgentToolDefinition[] => {
           ? `Update category budget to ₪${args.maximum_amount}.`
           : `Toggle category budget active: ${args.active}.`,
         execute: async (args, context) => {
+          if (!args.category_id && !args.category_name) {
+            throw new ClientError(400, 'Provide category_id or category_name.');
+          }
+          const hasMaximumAmount = args.maximum_amount !== undefined;
+          const activeValue = typeof args.active === 'boolean' ? args.active : undefined;
+          const hasActiveToggle = activeValue !== undefined;
+          if (!hasMaximumAmount && !hasActiveToggle) {
+            throw new ClientError(400, 'Provide maximum_amount or active.');
+          }
+
           const category = await host.resolveCategory(context.user_id, {
             category_id: args.category_id,
             category_name: args.category_name,
           });
-          if (args.maximum_amount !== undefined) {
+          const existingBudget = category.maximumSpentAllowed;
+          if (hasMaximumAmount) {
+            const maximumAmount = Number(args.maximum_amount);
+            if (!Number.isFinite(maximumAmount) || maximumAmount < 0) {
+              throw new ClientError(400, 'maximum_amount must be a non-negative number.');
+            }
             category.maximumSpentAllowed = {
-              active: args.active ?? true,
-              maximumAmount: Number(args.maximum_amount),
+              active: activeValue ?? existingBudget?.active ?? true,
+              maximumAmount,
             };
-          } else if (args.active !== undefined && category.maximumSpentAllowed) {
-            category.maximumSpentAllowed.active = args.active;
+          } else if (hasActiveToggle) {
+            if (!existingBudget || existingBudget.maximumAmount === undefined) {
+              throw new ClientError(400, 'Cannot toggle a budget before a maximum_amount is set.');
+            }
+            category.maximumSpentAllowed.active = activeValue;
           }
           const updated = await categoriesLogic.updateCategory(category, context.user_id);
 
           return {
             category_id: updated._id?.toString?.() ?? category._id.toString(),
             name: updated.name,
-            maximumAmount: updated.maximumSpentAllowed?.maximumAmount ?? Number(args.maximum_amount),
+            maximumAmount: updated.maximumSpentAllowed?.maximumAmount,
+            active: updated.maximumSpentAllowed?.active,
+            changed: hasMaximumAmount ? 'amount' : 'active',
           };
         },
-        buildResultReply: (args, result, language) => result.maximumAmount !== undefined
+        buildResultReply: (_args, result, language) => result.changed === 'active'
           ? localize(
             language,
-            `Updated the budget for **${result.name}** to **₪${roundAmount(result.maximumAmount)}**.`,
-            `עדכנתי את התקציב של **${result.name}** ל-**₪${roundAmount(result.maximumAmount)}**.`,
+            `Set the budget for **${result.name}** to **${result.active ? 'active' : 'inactive'}**.`,
+            `הגדרתי את התקציב של **${result.name}** ל-**${result.active ? 'פעיל' : 'לא פעיל'}**.`,
           )
           : localize(
             language,
-            `Updated the budget settings for **${result.name}**.`,
-            `עדכנתי את הגדרות התקציב של **${result.name}**.`,
+            `Updated the budget for **${result.name}** to **₪${roundAmount(result.maximumAmount)}**.`,
+            `עדכנתי את התקציב של **${result.name}** ל-**₪${roundAmount(result.maximumAmount)}**.`,
           ),
       },
       {

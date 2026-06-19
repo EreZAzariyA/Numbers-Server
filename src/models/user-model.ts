@@ -52,6 +52,7 @@ export interface IUserModel extends Document {
     lang: string,
     payDay?: number,
   };
+  role: 'admin' | 'user';
   loginAttempts: {
     lastAttemptDate: number,
     attempts: number
@@ -100,6 +101,11 @@ const UserSchema = new Schema<IUserModel>({
       min: 1,
       max: 28,
     },
+  },
+  role: {
+    type: String,
+    enum: ['admin', 'user'],
+    default: 'user',
   },
   loginAttempts: {
     lastAttemptDate: Number,

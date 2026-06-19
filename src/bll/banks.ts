@@ -13,8 +13,8 @@ import {
   getEventDate,
   getPostingDate,
   getProviderCategoryName,
-  getSemanticType,
 } from "../utils/transaction-semantics";
+import { inferSemanticType } from "../utils/semantic-type";
 
 type ImportedBankTransaction = Transaction & {
   billingDate?: string;
@@ -301,7 +301,7 @@ class BankLogic {
         identifier,
         amount: chargedAmount ?? originalAmount,
         category_id: originalTransactionCategory._id,
-        semanticType: getSemanticType(originalTransaction),
+        semanticType: inferSemanticType({ ...originalTransaction, companyId }),
         providerCategoryId: originalTransaction.providerCategoryId,
         providerCategoryName,
         merchantId: originalTransaction.merchantId,

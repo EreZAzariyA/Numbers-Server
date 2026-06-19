@@ -11,9 +11,10 @@
  * spending (when it does not).
  */
 
+import { CompanyTypes } from 'israeli-bank-scrapers-for-e.a-servers';
 import { normalize } from '../bll/recurring/normalization';
 import { diffDays, toDateStr, ymd } from './date-helpers';
-import { getPostingDate, getSemanticType, getTransactionAmount, getTransactionTextSource } from './transaction-semantics';
+import { getEventDate, getPostingDate, getSemanticType, getTransactionAmount, getTransactionTextSource } from './transaction-semantics';
 
 // ── Hebrew patterns commonly found in bank-statement settlement rows ────────
 
@@ -60,11 +61,31 @@ const NORMALIZED_SETTLEMENT = [
 
 const NORMALIZED_ISSUER_KW = CARD_ISSUER_KEYWORDS.map(normalize);
 
-const PROVIDER_ALIAS_GROUPS = [
-  { issuer: 'cal', aliases: ['כאל', 'cal', 'visa cal', 'visacal', 'leumi card', 'לאומי קארד'] },
-  { issuer: 'max', aliases: ['מקס', 'max', 'maxcard'] },
-  { issuer: 'isracard', aliases: ['ישראכרט', 'isracard', 'behatsdaa', 'בהצדעה'] },
-] as const;
+// Brand names that appear in *bank-statement text* for each card-provider company
+// we support. Keyed by CompanyTypes so the issuer identity is the same value
+// stored on card transactions' `companyId` — keep these keys in sync with
+// `CreditCardProviders` in utils/helpers.ts when a new provider is supported.
+const ISSUER_TEXT_ALIASES: Partial<Record<CompanyTypes, string[]>> = {
+  [CompanyTypes.visaCal]: ['cal', 'visa cal', 'visacal', 'כאל'],
+  [CompanyTypes.max]: ['max', 'maxcard', 'מקס', 'leumi card', 'לאומי קארד'],
+  [CompanyTypes.behatsdaa]: ['isracard', 'ישראכרט', 'behatsdaa', 'בהצדעה'],
+};
+
+// Pre-split each alias into multi-word phrases (matched as substrings — specific
+// enough to be safe) and single tokens (matched on word boundaries, so "cal"
+// no longer matches inside "medical").
+const NORMALIZED_ISSUER_ALIASES = Object.entries(ISSUER_TEXT_ALIASES).map(
+  ([issuer, aliases]) => {
+    const normalized = (aliases ?? []).map(normalize).filter(Boolean);
+    return {
+      issuer,
+      phrases: normalized.filter((alias) => alias.includes(' ')),
+      tokens: new Set(normalized.filter((alias) => !alias.includes(' '))),
+    };
+  },
+);
+
+const SUPPORTED_CARD_ISSUERS = new Set(Object.keys(ISSUER_TEXT_ALIASES));
 
 const ROUNDING_TOLERANCE = 1;
 const STATEMENT_MATCH_TOLERANCE = 0.08;
@@ -116,26 +137,23 @@ const getMonthEnd = (month: string): string => {
   return ymd(year, monthPart - 1, 31);
 };
 
-const getIssuerFromCompanyId = (companyId?: string): string | null => {
-  const norm = normalize(companyId ?? '');
-  if (!norm) return null;
+// A card transaction's issuer is its company identity directly — `companyId` is
+// already a CompanyTypes value. Restrict to supported card providers so unknown
+// or bank companies never form a statement total.
+const getIssuerFromCompanyId = (companyId?: string): string | null =>
+  companyId && SUPPORTED_CARD_ISSUERS.has(companyId) ? companyId : null;
 
-  for (const group of PROVIDER_ALIAS_GROUPS) {
-    if (group.aliases.some((alias) => norm.includes(normalize(alias)))) {
-      return group.issuer;
-    }
-  }
-
-  return null;
-};
-
+// Resolve an issuer from free-text bank descriptions using word-boundary token
+// matching (plus substring matching for multi-word brand phrases).
 const getIssuerHintFromText = (text: string): string | null => {
   const norm = normalize(text);
   if (!norm) return null;
 
-  for (const group of PROVIDER_ALIAS_GROUPS) {
-    if (group.aliases.some((alias) => norm.includes(normalize(alias)))) {
-      return group.issuer;
+  const tokens = new Set(norm.split(' '));
+  for (const entry of NORMALIZED_ISSUER_ALIASES) {
+    if (entry.phrases.some((phrase) => norm.includes(phrase))) return entry.issuer;
+    for (const token of entry.tokens) {
+      if (tokens.has(token)) return entry.issuer;
     }
   }
 
@@ -166,7 +184,10 @@ const buildStatementTotals = (
     const issuer = getIssuerFromCompanyId(transaction.companyId);
     if (!issuer) continue;
 
-    const date = getTransactionDate(transaction);
+    // Group by the *purchase* (event) date, not the billing date. The bank
+    // settlement debit lands at/after the close of the purchase month, which is
+    // what findStrongContextualMatch's [monthEnd-3, monthEnd+25] window expects.
+    const date = getEventDate(transaction);
     if (!date) continue;
 
     const amount = getTransactionAmount(transaction);

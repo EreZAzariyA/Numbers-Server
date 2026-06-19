@@ -6,8 +6,10 @@ import { isRedisAvailable } from "../utils/connectRedis";
 import { createRedisQueueUnavailableError } from "../utils/redis-runtime";
 import { decryptBankCredentials } from "../utils/bank-credentials";
 import { ScrapingJobData } from "../workers/scraping-worker";
+import { requireMatchingUserParam } from "../middlewares/require-user";
 
 const router = express.Router();
+router.param('user_id', requireMatchingUserParam);
 
 const ensureQueueingAvailable = (feature: string): void => {
   if (!isRedisAvailable()) {

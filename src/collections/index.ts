@@ -8,6 +8,7 @@ import { ChatHistory } from './ChatHistory';
 import { AgentPendingActions } from './AgentPendingActions';
 import { UserAiSettings } from './UserAiSettings';
 import { VectorMemory } from './VectorMemory';
+import { Notifications } from './Notifications';
 
 export {
   Accounts,
@@ -20,4 +21,5 @@ export {
   AgentPendingActions,
   UserAiSettings,
   VectorMemory,
+  Notifications,
 };

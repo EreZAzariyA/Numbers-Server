@@ -9,6 +9,8 @@ import savingsGoalsRouter from "./savings-goals";
 import financialHealthRouter from "./financial-health";
 import cashFlowRouter from "./cash-flow";
 import agentChatRouter from "./agent-chat";
+import adminRouter from "./admin";
+import notificationsRouter from "./notifications";
 
 export {
   authenticationRouter,
@@ -22,4 +24,6 @@ export {
   financialHealthRouter,
   cashFlowRouter,
   agentChatRouter,
+  adminRouter,
+  notificationsRouter,
 };

@@ -7,4 +7,3 @@ export { computeConfidence } from './confidence';
 export { recomputePatterns, getPatterns, overridePattern, getRecurringGroups } from './pattern-service';
 export { projectMonth } from './projection';
 export { matchEvents } from './matching';
-export { splitSettlements } from './settlement';

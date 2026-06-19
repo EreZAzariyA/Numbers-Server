@@ -26,6 +26,8 @@ type WorkerConfig = {
   scrapingConcurrency: number;
   transactionImportConcurrency: number;
   patternRecomputeConcurrency: number;
+  alertsGenerationEnabled: boolean;
+  alertsGenerationCron: string;
 };
 
 type QueueConfig = {
@@ -105,6 +107,8 @@ const getRuntimeConfig = (defaults: RuntimeDefaults): RuntimeDefaults => ({
     scrapingConcurrency: getEnvNumber('SCRAPING_WORKER_CONCURRENCY', defaults.workers.scrapingConcurrency, 1),
     transactionImportConcurrency: getEnvNumber('TRANSACTION_IMPORT_WORKER_CONCURRENCY', defaults.workers.transactionImportConcurrency, 1),
     patternRecomputeConcurrency: getEnvNumber('PATTERN_RECOMPUTE_WORKER_CONCURRENCY', defaults.workers.patternRecomputeConcurrency, 1),
+    alertsGenerationEnabled: getEnvBoolean('ENABLE_ALERTS_GENERATION', defaults.workers.alertsGenerationEnabled),
+    alertsGenerationCron: getEnvString('ALERTS_GENERATION_CRON', defaults.workers.alertsGenerationCron),
   },
   queue: {
     removeOnCompleteAgeSeconds: getEnvNumber('QUEUE_REMOVE_ON_COMPLETE_AGE_SECONDS', defaults.queue.removeOnCompleteAgeSeconds, 1),
@@ -132,6 +136,8 @@ const DEVELOPMENT_RUNTIME_DEFAULTS: RuntimeDefaults = {
     scrapingConcurrency: 1,
     transactionImportConcurrency: 1,
     patternRecomputeConcurrency: 1,
+    alertsGenerationEnabled: false,
+    alertsGenerationCron: '0 5 * * *',
   },
   queue: {
     removeOnCompleteAgeSeconds: 3600,
@@ -159,6 +165,8 @@ const PRODUCTION_RUNTIME_DEFAULTS: RuntimeDefaults = {
     scrapingConcurrency: 2,
     transactionImportConcurrency: 3,
     patternRecomputeConcurrency: 2,
+    alertsGenerationEnabled: true,
+    alertsGenerationCron: '0 5 * * *',
   },
   queue: {
     removeOnCompleteAgeSeconds: 3600,

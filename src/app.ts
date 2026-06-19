@@ -20,11 +20,14 @@ import {
   financialHealthRouter,
   cashFlowRouter,
   agentChatRouter,
+  adminRouter,
+  notificationsRouter,
 } from './routes';
 import { startScrapingWorker } from './workers/scraping-worker';
 import { startTransactionImportWorker } from './workers/transaction-import-worker';
 import { startPatternRecomputeWorker } from './workers/pattern-recompute-worker';
 import { scheduleNightlyRefresh } from './workers/nightly-refresh';
+import { scheduleAlertsGeneration } from './workers/alerts-generation';
 import { socketIo } from './dal/socket';
 import recurringOverridesRouter from './routes/recurring-overrides';
 import { getRuntimeSnapshot, setWorkersEnabled } from './utils/runtime-status';
@@ -54,6 +57,8 @@ app.use('/api/financial-health', verifyToken, financialHealthRouter);
 app.use('/api/cash-flow', verifyToken, cashFlowRouter);
 app.use('/api/recurring', verifyToken, recurringOverridesRouter);
 app.use('/api/agent', verifyToken, agentChatRouter);
+app.use('/api/admin', verifyToken, adminRouter);
+app.use('/api/notifications', verifyToken, notificationsRouter);
 
 app.use("*", (_, res: Response) => {
   res.status(404).send('Route Not Found');
@@ -61,19 +66,26 @@ app.use("*", (_, res: Response) => {
 
 const validateConfig = (): void => {
   if (isNaN(config.port)) {
-    throw new Error(`Invalid port number: ${config.port}`);
+    throw new Error('PORT environment variable is missing or is not a valid number');
   }
 
   if (!config.mongoConnectionString) {
-    throw new Error('Mongo connection string is missing');
+    throw new Error('MONGO_CONNECTION_STRING environment variable is required');
   }
 
   if (!config.secretKey) {
-    throw new Error('Secret key is missing');
+    throw new Error('SECRET_KEY environment variable is required');
   }
 
   if (!config.googleClientId) {
-    throw new Error('Google client id is missing');
+    throw new Error('GOOGLE_CLIENT_ID environment variable is required');
+  }
+
+  if (config.isProduction && !process.env.BANK_CREDENTIALS_ENCRYPTION_SECRET) {
+    throw new Error(
+      'BANK_CREDENTIALS_ENCRYPTION_SECRET environment variable is required in production — ' +
+      'it must remain identical across deploys or previously saved bank credentials will become undecryptable'
+    );
   }
 };
 
@@ -96,6 +108,11 @@ const bootstrap = async (): Promise<void> => {
         await scheduleNightlyRefresh();
       } else {
         config.log.info('Nightly bank refresh scheduling is disabled');
+      }
+      if (config.workers.alertsGenerationEnabled) {
+        await scheduleAlertsGeneration();
+      } else {
+        config.log.info('Alert generation scheduling is disabled');
       }
       workersEnabled = true;
     }

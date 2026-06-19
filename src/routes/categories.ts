@@ -1,8 +1,10 @@
 import express, { NextFunction, Request, Response } from "express";
 import { CategoryModel } from "../models/category-model";
 import { categoriesLogic } from "../bll";
+import { assertRequestUser, requireMatchingUserParam } from "../middlewares/require-user";
 
 const router = express.Router();
+router.param('user_id', requireMatchingUserParam);
 
 router.get("/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -39,6 +41,7 @@ router.put("/:user_id", async (req: Request, res: Response, next: NextFunction) 
 router.delete("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { category_id, user_id } = req.body;
+    assertRequestUser(req, user_id);
     await categoriesLogic.removeCategory(category_id, user_id);
     res.sendStatus(200);
   } catch (err: any) {

@@ -1,5 +1,6 @@
 import express, { NextFunction, Request, Response } from "express";
 import transactionsLogic, { detectRecurringTransactions, TransactionParams } from "../bll/transactions";
+import { assertRequestUser, requireMatchingUserParam } from "../middlewares/require-user";
 
 type RequestBody = {
   type: string;
@@ -7,6 +8,7 @@ type RequestBody = {
 };
 
 const router = express.Router();
+router.param('user_id', requireMatchingUserParam);
 
 router.get("/recurring/:user_id", async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -54,6 +56,7 @@ router.put("/:user_id", async (req: Request, res: Response, next: NextFunction) 
 router.delete("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { user_id, transaction_id, type } = req.body;
+    assertRequestUser(req, user_id);
     await transactionsLogic.removeTransaction(user_id, transaction_id, type);
     res.sendStatus(200);
   } catch (err: any) {

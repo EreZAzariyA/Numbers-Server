@@ -1,7 +1,9 @@
 import express, { NextFunction, Request, Response } from 'express';
 import { calculateForecast } from '../bll/forecast';
+import { requireMatchingUserParam } from '../middlewares/require-user';
 
 const router = express.Router();
+router.param('user_id', requireMatchingUserParam);
 
 router.get('/:user_id', async (req: Request, res: Response, next: NextFunction) => {
   try {
