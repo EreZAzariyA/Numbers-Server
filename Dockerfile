@@ -4,12 +4,7 @@ FROM node:22-slim AS builder
 WORKDIR /workspace/numbers-server
 
 COPY package*.json ./
-
-# Replace the local file: reference with the published npm version, then drop
-# the lockfile so npm resolves fresh from the registry (no file: residue).
-RUN npm pkg set dependencies["israeli-bank-scrapers-for-e.a-servers"]="^3.0.1" \
-    && rm -f package-lock.json \
-    && npm install --legacy-peer-deps
+RUN npm ci --legacy-peer-deps
 
 COPY . .
 RUN npx tsc
@@ -48,10 +43,7 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 WORKDIR /workspace/numbers-server
 
 COPY package*.json ./
-
-RUN npm pkg set dependencies["israeli-bank-scrapers-for-e.a-servers"]="^3.0.1" \
-    && rm -f package-lock.json \
-    && npm install --omit=dev --legacy-peer-deps
+RUN npm ci --omit=dev --legacy-peer-deps
 
 # Copy compiled output from builder
 COPY --from=builder /workspace/numbers-server/build ./build

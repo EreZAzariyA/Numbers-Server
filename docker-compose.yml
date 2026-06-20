@@ -5,38 +5,16 @@
 #
 # Redis is NOT managed by Docker — set REDIS_URL in .env to point at your external instance.
 #
-# No Ollama (default):
+# CPU (default):
 #   docker compose up -d
 #
-# With Ollama, CPU only (production):
-#   docker compose --profile ollama up -d
-#
-# With Ollama, GPU (development — requires NVIDIA Container Toolkit):
-#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d
-#
-# Infra only (run the server locally instead of in a container):
-#   docker compose up -d mongodb
+# GPU (requires NVIDIA Container Toolkit):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 #
 # Backend: http://localhost:5000
 
 services:
-  mongodb:
-    image: mongo:7
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - numbers-net
-    healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
   ollama:
-    profiles: [ollama]
     image: ollama/ollama
     ports:
       - "11434:11434"
@@ -57,7 +35,6 @@ services:
   # One-shot service: pulls the model into the shared ollama_data volume.
   # Exits after pull completes. On subsequent starts the model is already present.
   ollama-init:
-    profiles: [ollama]
     image: ollama/ollama
     depends_on:
       ollama:
@@ -80,7 +57,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 5000
-      MONGO_CONNECTION_STRING: mongodb://mongodb:27017/numbers
+      MONGO_CONNECTION_STRING: ${MONGO_CONNECTION_STRING}
       REDIS_URL: ${REDIS_URL}
       RATE_LIMIT_GLOBAL_WINDOW_MS: ${RATE_LIMIT_GLOBAL_WINDOW_MS:-60000}
       RATE_LIMIT_GLOBAL_MAX: ${RATE_LIMIT_GLOBAL_MAX:-100}
@@ -106,15 +83,11 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-}
-    depends_on:
-      mongodb:
-        condition: service_healthy
     networks:
       - numbers-net
     restart: unless-stopped
 
 volumes:
-  mongo_data:
   ollama_data:
 
 networks:
