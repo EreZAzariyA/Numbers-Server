@@ -1,6 +1,7 @@
 require('dotenv').config();
 import cors from "cors";
 import express, { Response } from "express";
+import path from "path";
 import { once } from "events";
 import { createServer } from "http";
 import config from "./utils/config";
@@ -64,8 +65,10 @@ app.use('/api/agent', verifyToken, agentChatRouter);
 app.use('/api/admin', verifyToken, adminRouter);
 app.use('/api/notifications', verifyToken, notificationsRouter);
 
-app.use("*", (_, res: Response) => {
-  res.status(404).send('Route Not Found');
+const publicDir = path.join(__dirname, '../../public');
+app.use(express.static(publicDir));
+app.get('*', (_, res: Response) => {
+  res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 const validateConfig = (): void => {

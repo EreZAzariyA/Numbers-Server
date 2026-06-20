@@ -45,8 +45,9 @@ WORKDIR /workspace/numbers-server
 COPY package*.json ./
 RUN npm ci --omit=dev --legacy-peer-deps
 
-# Copy compiled output from builder
+# Copy compiled output and React build from builder
 COPY --from=builder /workspace/numbers-server/build ./build
+COPY --from=builder /workspace/numbers-server/public ./public
 
 EXPOSE 5000
 
