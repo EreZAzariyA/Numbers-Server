@@ -65,11 +65,17 @@ app.use('/api/agent', verifyToken, agentChatRouter);
 app.use('/api/admin', verifyToken, adminRouter);
 app.use('/api/notifications', verifyToken, notificationsRouter);
 
-const publicDir = path.join(__dirname, '../../public');
-app.use(express.static(publicDir));
-app.get('*', (_, res: Response) => {
-  res.sendFile(path.join(publicDir, 'index.html'));
-});
+if (config.isProduction) {
+  const publicDir = path.join(__dirname, '../../public');
+  app.use(express.static(publicDir));
+  app.get('*', (_, res: Response) => {
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+} else {
+  app.use('*', (_, res: Response) => {
+    res.status(404).send('Route Not Found');
+  });
+}
 
 const validateConfig = (): void => {
   if (isNaN(config.port)) {
