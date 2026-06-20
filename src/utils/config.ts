@@ -224,7 +224,7 @@ class ProductionConfig extends Config {
     this.refreshTokenExpiresIn = 7 * 24 * 60 * 60;
     this.mongoConnectionString = process.env.MONGO_CONNECTION_STRING;
     this.redisUrl = process.env.REDIS_URL;
-    this.corsUrls = ['http://localhost:3000', 'http://localhost:8080', 'https://ea-numbers.vercel.app', 'https://ea-numbers-test.vercel.app'];
+    this.corsUrls = ['http://localhost:3000', 'http://localhost:8080', 'https://ea-numbers.erezdev.com', 'https://ea-numbers.test.erezdev.com'];
     this.log = getLogger(name, version, getLogLevel(ENV_TYPE.PRODUCTION));
     this.secretKey = process.env.SECRET_KEY;
     this.googleClientId = process.env.GOOGLE_CLIENT_ID;
