@@ -1,6 +1,7 @@
 import express, { NextFunction, Request, Response } from "express";
 import { usersLogic } from "../bll";
 import aiSettingsLogic, { type AiProvider } from "../bll/ai-settings";
+import agentMemory from "../bll/agent-memory";
 import { ClientError } from "../models";
 import { requireMatchingUserParam } from "../middlewares/require-user";
 
@@ -109,6 +110,7 @@ router.put('/ai-settings/:user_id/provider', async (req: Request, res: Response,
     const user_id = req.params.user_id;
     const provider = req.body.provider as AiProvider;
     const settings = await aiSettingsLogic.updateProvider(user_id, provider);
+    agentMemory.reembed(user_id).catch(() => {});
     res.status(200).json(settings);
   } catch (err: any) {
     next(err);
@@ -121,6 +123,7 @@ router.put('/ai-settings/:user_id/keys', async (req: Request, res: Response, nex
     const provider = req.body.provider as 'gemini' | 'claude';
     const apiKey = req.body.apiKey as string;
     const settings = await aiSettingsLogic.upsertProviderKey(user_id, provider, apiKey);
+    agentMemory.reembed(user_id).catch(() => {});
     res.status(200).json(settings);
   } catch (err: any) {
     next(err);

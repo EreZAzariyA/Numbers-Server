@@ -58,6 +58,8 @@ const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 const getOllamaModel = (): string | null => process.env.OLLAMA_MODEL || null;
 
+const getOllamaEmbeddingModel = (): string | null => process.env.OLLAMA_EMBEDDING_MODEL?.trim() || null;
+
 const resolveOllamaModel = (doc?: IUserAiSettingsCollection | null): string | null =>
   doc?.ollamaModel || getOllamaModel();
 
@@ -363,11 +365,13 @@ class AiSettingsLogic {
       return { provider: 'gemini', apiKey: geminiKey, model: 'text-embedding-004' };
     }
 
-    // Fall back to Ollama when configured. The chat model is reused; the caller
-    // validates the returned dimension and skips saving if it does not match 768.
-    const ollamaModel = resolveOllamaModel(doc);
-    if (ollamaModel) {
-      return { provider: 'ollama', model: ollamaModel };
+    // Ollama requires a dedicated embedding model (OLLAMA_EMBEDDING_MODEL env var,
+    // e.g. nomic-embed-text). The chat model cannot be reused — most chat models
+    // don't support /api/embed and those that do return non-768 dimensions, causing
+    // embed() to silently return null and discard every memory operation.
+    const ollamaEmbeddingModel = getOllamaEmbeddingModel();
+    if (ollamaEmbeddingModel) {
+      return { provider: 'ollama', model: ollamaEmbeddingModel };
     }
 
     return null;

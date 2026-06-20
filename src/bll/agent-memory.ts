@@ -1,11 +1,14 @@
 import { VectorMemory } from '../collections/VectorMemory';
 import aiSettingsLogic from './ai-settings';
 import { embed } from '../utils/embeddings';
+import appConfig from '../utils/config';
 
-const IS_ATLAS = process.env.NODE_ENV === 'production';
+const IS_ATLAS = appConfig.mongoConnectionString?.startsWith('mongodb+srv://') ?? false;
 const ATLAS_VECTOR_INDEX = 'vector_index';
 const TOP_K = 5;
 const NUM_CANDIDATES = TOP_K * 10;
+const MAX_MEMORIES_PER_USER = 200;
+const MIN_RECALL_SCORE = 0.5;
 
 const cosineSimilarity = (a: number[], b: number[]): number => {
   let dot = 0, magA = 0, magB = 0;
@@ -20,11 +23,11 @@ const cosineSimilarity = (a: number[], b: number[]): number => {
 
 class AgentMemory {
   async save(user_id: string, userMessage: string, assistantReply: string): Promise<void> {
-    const config = await aiSettingsLogic.resolveEmbeddingProvider(user_id);
-    if (!config) return;
+    const embeddingConfig = await aiSettingsLogic.resolveEmbeddingProvider(user_id);
+    if (!embeddingConfig) return;
 
     const content = `User: ${userMessage}\nAssistant: ${assistantReply}`;
-    const result = await embed(config, content);
+    const result = await embed(embeddingConfig, content);
     if (!result) return;
 
     await VectorMemory.create({
@@ -34,13 +37,62 @@ class AgentMemory {
       embeddingProvider: result.provider,
       embeddingModel: result.model,
     });
+
+    // Prune oldest entries beyond cap to prevent unbounded growth and slow in-memory scans.
+    const count = await VectorMemory.countDocuments({ user_id });
+    if (count > MAX_MEMORIES_PER_USER) {
+      const toDelete = await VectorMemory
+        .find({ user_id }, { _id: 1 })
+        .sort({ createdAt: 1 })
+        .limit(count - MAX_MEMORIES_PER_USER)
+        .lean()
+        .exec();
+      if (toDelete.length > 0) {
+        await VectorMemory.deleteMany({ _id: { $in: toDelete.map((d) => d._id) } });
+      }
+    }
+  }
+
+  async reembed(user_id: string): Promise<void> {
+    const embeddingConfig = await aiSettingsLogic.resolveEmbeddingProvider(user_id);
+    if (!embeddingConfig) return;
+
+    const stale = await VectorMemory
+      .find(
+        {
+          user_id,
+          $or: [
+            { embeddingProvider: { $ne: embeddingConfig.provider } },
+            { embeddingModel: { $ne: embeddingConfig.model } },
+          ],
+        },
+        { _id: 1, content: 1 },
+      )
+      .lean()
+      .exec();
+
+    for (const memory of stale) {
+      const result = await embed(embeddingConfig, memory.content);
+      if (!result) continue;
+
+      await VectorMemory.updateOne(
+        { _id: memory._id },
+        {
+          $set: {
+            embedding: result.embedding,
+            embeddingProvider: result.provider,
+            embeddingModel: result.model,
+          },
+        },
+      );
+    }
   }
 
   async recall(user_id: string, query: string): Promise<string[]> {
-    const config = await aiSettingsLogic.resolveEmbeddingProvider(user_id);
-    if (!config) return [];
+    const embeddingConfig = await aiSettingsLogic.resolveEmbeddingProvider(user_id);
+    if (!embeddingConfig) return [];
 
-    const result = await embed(config, query);
+    const result = await embed(embeddingConfig, query);
     if (!result) return [];
 
     const { embedding, provider, model } = result;
@@ -57,6 +109,8 @@ class AgentMemory {
             filter: { user_id, embeddingProvider: provider, embeddingModel: model },
           },
         },
+        { $addFields: { score: { $meta: 'vectorSearchScore' } } },
+        { $match: { score: { $gte: MIN_RECALL_SCORE } } },
         { $project: { content: 1, _id: 0 } },
       ]);
       return docs.map((d: { content: string }) => d.content);
@@ -71,7 +125,7 @@ class AgentMemory {
       .map((m) => ({ content: m.content, score: cosineSimilarity(embedding, m.embedding) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, TOP_K)
-      .filter((m) => m.score > 0.5)
+      .filter((m) => m.score > MIN_RECALL_SCORE)
       .map((m) => m.content);
   }
 }

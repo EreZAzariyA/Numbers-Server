@@ -3,16 +3,20 @@
 # The frontend is deployed to Vercel and is not part of this stack.
 # Variable substitution (${VAR}) reads Numbers-Server/.env — see .env.example.
 #
-# Default workflow: bring up the backend + Mongo + Redis + Ollama.
+# Without GPU (default):
 #   docker compose up -d
+#   Starts: mongodb, redis, server. Ollama is not started.
 #
-# Backend:   http://localhost:5000
+# With GPU + Ollama:
+#   docker compose --profile ollama up -d
+#   Starts: mongodb, redis, server, ollama, ollama-init.
+#   Requires the NVIDIA Container Toolkit on the host.
+#   The first run pulls the model (may take a few minutes); subsequent starts are instant.
 #
 # Infra only (run the server locally instead of in a container):
 #   docker compose up -d mongodb redis
 #
-# The first time you start, ollama-init pulls the model (may take a few minutes).
-# Model data is persisted in the ollama_data volume — subsequent starts are instant.
+# Backend: http://localhost:5000
 
 services:
   mongodb:
@@ -47,6 +51,7 @@ services:
       start_period: 5s
 
   ollama:
+    profiles: [ollama]
     image: ollama/ollama
     ports:
       - "11434:11434"
@@ -54,8 +59,6 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - numbers-net
-    # Run inference on the NVIDIA GPU. Requires the NVIDIA Container Toolkit on the
-    # host (Docker Desktop on Windows: enable WSL2 + GPU support).
     environment:
       OLLAMA_KEEP_ALIVE: 30m
     deploy:
@@ -76,6 +79,7 @@ services:
   # One-shot service: pulls the model into the shared ollama_data volume.
   # Exits after pull completes. On subsequent starts the model is already present.
   ollama-init:
+    profiles: [ollama]
     image: ollama/ollama
     depends_on:
       ollama:
@@ -111,6 +115,8 @@ services:
       BANK_SCRAPER_HEADLESS: ${BANK_SCRAPER_HEADLESS:-true}
       ENABLE_NIGHTLY_REFRESH: ${ENABLE_NIGHTLY_REFRESH:-true}
       NIGHTLY_REFRESH_CRON: "${NIGHTLY_REFRESH_CRON:-0 2 * * *}"
+      ENABLE_ALERTS_GENERATION: ${ENABLE_ALERTS_GENERATION:-true}
+      ALERTS_GENERATION_CRON: "${ALERTS_GENERATION_CRON:-0 5 * * *}"
       SCRAPING_WORKER_CONCURRENCY: ${SCRAPING_WORKER_CONCURRENCY:-2}
       TRANSACTION_IMPORT_WORKER_CONCURRENCY: ${TRANSACTION_IMPORT_WORKER_CONCURRENCY:-3}
       PATTERN_RECOMPUTE_WORKER_CONCURRENCY: ${PATTERN_RECOMPUTE_WORKER_CONCURRENCY:-2}
@@ -119,14 +125,15 @@ services:
       BANK_CREDENTIALS_ENCRYPTION_SECRET: ${BANK_CREDENTIALS_ENCRYPTION_SECRET}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
-      OLLAMA_BASE_URL: http://ollama:11434/v1
+      # Empty default disables Ollama — the server starts without it.
+      # Set OLLAMA_MODEL in .env to enable (requires --profile ollama).
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-}
     depends_on:
       mongodb:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
     networks:
       - numbers-net
