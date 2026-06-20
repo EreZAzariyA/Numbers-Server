@@ -3,18 +3,19 @@
 # The frontend is deployed to Vercel and is not part of this stack.
 # Variable substitution (${VAR}) reads Numbers-Server/.env — see .env.example.
 #
-# Without GPU (default):
-#   docker compose up -d
-#   Starts: mongodb, redis, server. Ollama is not started.
+# Redis is NOT managed by Docker — set REDIS_URL in .env to point at your external instance.
 #
-# With GPU + Ollama:
+# No Ollama (default):
+#   docker compose up -d
+#
+# With Ollama, CPU only (production):
 #   docker compose --profile ollama up -d
-#   Starts: mongodb, redis, server, ollama, ollama-init.
-#   Requires the NVIDIA Container Toolkit on the host.
-#   The first run pulls the model (may take a few minutes); subsequent starts are instant.
+#
+# With Ollama, GPU (development — requires NVIDIA Container Toolkit):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile ollama up -d
 #
 # Infra only (run the server locally instead of in a container):
-#   docker compose up -d mongodb redis
+#   docker compose up -d mongodb
 #
 # Backend: http://localhost:5000
 
@@ -34,22 +35,6 @@ services:
       retries: 5
       start_period: 10s
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - numbers-net
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-
   ollama:
     profiles: [ollama]
     image: ollama/ollama
@@ -61,13 +46,6 @@ services:
       - numbers-net
     environment:
       OLLAMA_KEEP_ALIVE: 30m
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -103,7 +81,7 @@ services:
       NODE_ENV: production
       PORT: 5000
       MONGO_CONNECTION_STRING: mongodb://mongodb:27017/numbers
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL}
       RATE_LIMIT_GLOBAL_WINDOW_MS: ${RATE_LIMIT_GLOBAL_WINDOW_MS:-60000}
       RATE_LIMIT_GLOBAL_MAX: ${RATE_LIMIT_GLOBAL_MAX:-100}
       RATE_LIMIT_AUTH_WINDOW_MS: ${RATE_LIMIT_AUTH_WINDOW_MS:-900000}
@@ -125,15 +103,11 @@ services:
       BANK_CREDENTIALS_ENCRYPTION_SECRET: ${BANK_CREDENTIALS_ENCRYPTION_SECRET}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      # Empty default disables Ollama — the server starts without it.
-      # Set OLLAMA_MODEL in .env to enable (requires --profile ollama).
       OLLAMA_MODEL: ${OLLAMA_MODEL:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-}
     depends_on:
       mongodb:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - numbers-net
@@ -141,7 +115,6 @@ services:
 
 volumes:
   mongo_data:
-  redis_data:
   ollama_data:
 
 networks:
