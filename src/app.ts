@@ -34,6 +34,10 @@ import { getRuntimeSnapshot, setWorkersEnabled } from './utils/runtime-status';
 import { getRedisTarget } from './utils/connectRedis';
 
 const app = express();
+// Behind a reverse proxy (IIS/ARR). Trust the first proxy hop so that
+// req.ip, req.protocol, secure cookies, and express-rate-limit use the
+// real client IP from X-Forwarded-* instead of 127.0.0.1.
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
 
 app.use(healthRouter);
