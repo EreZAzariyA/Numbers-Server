@@ -29,6 +29,7 @@ import { startTransactionImportWorker } from './workers/transaction-import-worke
 import { startPatternRecomputeWorker } from './workers/pattern-recompute-worker';
 import { scheduleNightlyRefresh } from './workers/nightly-refresh';
 import { scheduleAlertsGeneration } from './workers/alerts-generation';
+import { scheduleProactiveAnalysis } from './workers/proactive-analysis';
 import { socketIo } from './dal/socket';
 import recurringOverridesRouter from './routes/recurring-overrides';
 import { getRuntimeSnapshot, setWorkersEnabled } from './utils/runtime-status';
@@ -138,6 +139,11 @@ const bootstrap = async (): Promise<void> => {
         await scheduleAlertsGeneration();
       } else {
         config.log.info('Alert generation scheduling is disabled');
+      }
+      if (config.workers.proactiveAnalysisEnabled) {
+        await scheduleProactiveAnalysis();
+      } else {
+        config.log.info('Proactive analysis scheduling is disabled');
       }
       workersEnabled = true;
     }
