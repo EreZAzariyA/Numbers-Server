@@ -8,7 +8,6 @@ import google from "../utils/google";
 import { ErrorMessages, MAX_LOGIN_ATTEMPTS, removeServicesFromUser } from "../utils/helpers";
 import jwtService from "../utils/jwt";
 import {
-  createRedisSessionUnavailableError,
   logRedisFeatureMode,
   logRedisOperationFailure,
 } from "../utils/redis-runtime";
@@ -21,12 +20,6 @@ interface AuthTokens {
 }
 
 class AuthenticationLogic {
-  private ensureRedisBackedSession(action: string): void {
-    if (!isRedisAvailable()) {
-      throw createRedisSessionUnavailableError(action.toLowerCase().replace(/\s+/g, '-'));
-    }
-  }
-
   private async issueTokens(user: IUserModel): Promise<AuthTokens> {
     const token = jwtService.getNewToken(user);
     const refreshToken = jwtService.createRefreshToken(user._id.toString());
@@ -166,16 +159,29 @@ class AuthenticationLogic {
     if (!refreshToken) {
       throw new ClientError(401, ErrorMessages.TOKEN_EXPIRED);
     }
-    this.ensureRedisBackedSession('Session refresh');
 
     const payload = jwtService.verifyRefreshToken(refreshToken);
     if (!payload?._id) {
       throw new ClientError(401, ErrorMessages.TOKEN_EXPIRED);
     }
 
-    const stored = await redisClient.get(`refresh:${payload._id}`);
-    if (stored !== refreshToken) {
-      throw new ClientError(401, ErrorMessages.TOKEN_EXPIRED);
+    // When Redis is up, enforce the server-side allowlist so revoked refresh
+    // tokens are rejected. When Redis is down we degrade gracefully: a
+    // cryptographically valid, unexpired refresh token is still accepted, so a
+    // Redis outage no longer logs every active user out on page refresh. The
+    // accepted tradeoff is that logout/revocation cannot take effect while
+    // Redis is unavailable.
+    if (isRedisAvailable()) {
+      const stored = await redisClient.get(`refresh:${payload._id}`);
+      if (stored !== refreshToken) {
+        throw new ClientError(401, ErrorMessages.TOKEN_EXPIRED);
+      }
+    } else {
+      logRedisFeatureMode('auth-session-refresh', false, {
+        availableMessage: 'Redis-backed session refresh validation is available again.',
+        unavailableMessage: 'Redis is unavailable; refreshing sessions without server-side revocation checks.',
+        unavailableLevel: 'warn',
+      });
     }
 
     const user = await UserModel.findById(payload._id).select('-services').exec();
@@ -183,12 +189,21 @@ class AuthenticationLogic {
       throw new ClientError(401, 'User not found');
     }
 
-    return this.issueTokens(user);
+    // Issue a fresh access token but keep the existing refresh token. Rotating it
+    // here would invalidate concurrent refreshes — e.g. React StrictMode firing
+    // the startup refresh twice, or the response interceptor retrying a 401 while
+    // the page-load refresh is still in flight — logging the user straight back out.
+    const token = jwtService.getNewToken(user);
+    return { token, refreshToken };
   };
 
   logout = async (userId: string): Promise<void> => {
-    this.ensureRedisBackedSession('Logout');
-    await redisClient.del(`refresh:${userId}`);
+    // Best-effort revocation: drop the server-side refresh token when Redis is
+    // reachable. If Redis is down we skip it — the caller still clears the
+    // client cookie, so the session ends on this device regardless.
+    if (isRedisAvailable()) {
+      await redisClient.del(`refresh:${userId}`);
+    }
   };
 };
 

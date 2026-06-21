@@ -24,7 +24,6 @@ type RedisConnectionState = {
 
 const REDIS_UNAVAILABLE_CODE = 'REDIS_UNAVAILABLE';
 const REDIS_QUEUE_MESSAGE = 'Background jobs are temporarily unavailable. Please try again later.';
-const REDIS_SESSION_MESSAGE = 'Session services are temporarily unavailable. Please try again later.';
 
 const featureModeState = new Map<string, boolean | null>();
 const connectionState = new Map<string, RedisConnectionState>();
@@ -167,7 +166,4 @@ const createRedisUnavailableError = (
 
 export const createRedisQueueUnavailableError = (feature: string): ClientError =>
   createRedisUnavailableError(feature, REDIS_QUEUE_MESSAGE);
-
-export const createRedisSessionUnavailableError = (feature: string): ClientError =>
-  createRedisUnavailableError(feature, REDIS_SESSION_MESSAGE);
 

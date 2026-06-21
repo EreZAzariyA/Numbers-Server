@@ -67,8 +67,20 @@ app.use('/api/notifications', verifyToken, notificationsRouter);
 
 if (config.isProduction) {
   const publicDir = path.join(__dirname, '../../public');
-  app.use(express.static(publicDir));
+  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+  // CRA emits content-hashed asset filenames (main.[hash].js), so those are safe
+  // to cache for a year. index.html must never be cached — it references the
+  // latest hashed bundles, so a stale copy would load dead asset URLs.
+  app.use(express.static(publicDir, {
+    maxAge: ONE_YEAR_MS,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
   app.get('*', (_, res: Response) => {
+    res.set('Cache-Control', 'no-cache');
     res.sendFile(path.join(publicDir, 'index.html'));
   });
 } else {
