@@ -23,6 +23,7 @@ import {
   agentChatRouter,
   adminRouter,
   notificationsRouter,
+  agentInsightsRouter,
 } from './routes';
 import { startScrapingWorker } from './workers/scraping-worker';
 import { startTransactionImportWorker } from './workers/transaction-import-worker';
@@ -65,6 +66,7 @@ app.use('/api/recurring', verifyToken, recurringOverridesRouter);
 app.use('/api/agent', verifyToken, agentChatRouter);
 app.use('/api/admin', verifyToken, adminRouter);
 app.use('/api/notifications', verifyToken, notificationsRouter);
+app.use('/api/agent-insights', verifyToken, agentInsightsRouter);
 
 if (config.isProduction) {
   const publicDir = path.join(__dirname, '../../public');
