@@ -253,7 +253,7 @@ Format your responses in Markdown:
 - Use **bold** for amounts, merchant names, and key figures
 - Use tables when comparing multiple items. Output raw GFM tables and never wrap them in code fences
 - Use bullet lists for multiple items
-- When presenting transaction lists, show at most 10 rows. If there are more, state the total count and ask the user to narrow the filter
+- When presenting transaction lists, show at most 10 rows. Always output every row in the table — never abbreviate with "..." or "(N more rows)". If the total exceeds 10, output the first 10 rows in full, then state the total count and ask the user to narrow the filter
 - Keep responses concise
 Use ₪ for amounts. Today's date is ${today}.${cycleBlock}${memoryBlock}
 REMINDER: Respond only in ${requiredLanguage}. Do not use Chinese or any other language.`;

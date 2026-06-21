@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Types } from 'mongoose';
 import { toDateStr, addDays } from '../../utils/date-helpers';
 import { createOllamaClient } from '../../utils/ollama-client';
+import config from '../../utils/config';
 import aiSettingsLogic from '../ai-settings';
 import agentInsightsLogic from '../agent-insights';
 import { Notifications } from '../../collections';
@@ -30,7 +31,7 @@ const buildPrompt = (
     : 'No findings.';
 
   const notificationsBlock = notifications.length > 0
-    ? notifications.map((n) => `- ${n.title}: ${n.body}`).join('\n')
+    ? notifications.map((n) => (n.body ? `- ${n.title}: ${n.body}` : `- ${n.title}`)).join('\n')
     : '';
 
   const alertsSection = notificationsBlock
@@ -45,11 +46,12 @@ Findings (sorted by severity):
 ${findingsBlock}${alertsSection}`;
 };
 
-const callOllama = async (prompt: string, model: string): Promise<string> => {
+const callOllama = async (prompt: string, model: string, thinking: boolean): Promise<string> => {
   const client = createOllamaClient();
+  const effectivePrompt = thinking ? prompt : `/no_think\n${prompt}`;
   const response = await client.chat.completions.create({
     model,
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: 'user', content: effectivePrompt }],
   });
   return response.choices[0]?.message?.content ?? '';
 };
@@ -58,7 +60,7 @@ const callClaude = async (prompt: string, apiKey: string, model: string): Promis
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
     model,
-    max_tokens: 300,
+    max_tokens: 512,
     messages: [{ role: 'user', content: prompt }],
   });
   return response.content
@@ -121,15 +123,24 @@ export async function generateDashboardDigest(user_id: string, language: 'en' | 
     let aiSummary: string;
 
     if (runtime.provider === 'ollama') {
-      aiSummary = await callOllama(prompt, runtime.model);
-    } else if (runtime.provider === 'claude') {
-      aiSummary = await callClaude(prompt, runtime.apiKey!, runtime.model);
+      aiSummary = await callOllama(prompt, runtime.model, runtime.thinking ?? true);
     } else {
-      aiSummary = await callGemini(prompt, runtime.apiKey!, runtime.model);
+      if (!runtime.apiKey) {
+        await agentInsightsLogic.upsert(user_id, 'dashboard-digest', today, allFindings);
+        return;
+      }
+
+      if (runtime.provider === 'claude') {
+        aiSummary = await callClaude(prompt, runtime.apiKey, runtime.model);
+      } else {
+        aiSummary = await callGemini(prompt, runtime.apiKey, runtime.model);
+      }
     }
 
     await agentInsightsLogic.upsert(user_id, 'dashboard-digest', today, allFindings, aiSummary);
   } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    config.log.error({ user_id }, `generateDashboardDigest failed: ${message}`);
     await agentInsightsLogic.upsert(user_id, 'dashboard-digest', today, allFindings);
   }
 }
