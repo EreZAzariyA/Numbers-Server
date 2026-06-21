@@ -1,7 +1,7 @@
 import { InsightFinding } from '../../models';
 import agentInsightsLogic from '../agent-insights';
 import { calculateCashFlowProjection } from '../cash-flow-projection';
-import { getSubscriptions } from '../subscriptions';
+import { getSubscriptions, PRICE_INCREASE_THRESHOLD_PCT } from '../subscriptions';
 import { getUpcomingRenewals } from '../recurring/renewals';
 import { fetchCompletedTransactions } from '../shared/transaction-queries';
 import { filterAndTallySettlements } from '../shared/settlement-filter';
@@ -18,7 +18,6 @@ const HIGH_SPEND_RATIO = 2;
 const HIGH_SPEND_MIN_TOTAL = 200;
 const LARGE_TXN_THRESHOLD = 1000;
 const WEEKLY_CHANGE_THRESHOLD_PCT = 20;
-const PRICE_INCREASE_MIN_PCT = 8;
 const RENEWAL_ALERT_WITHIN_DAYS = 7;
 const INCOME_SKIP_DAY = 12;
 const INCOME_PRIOR_MIN = 2000;
@@ -86,53 +85,62 @@ export async function runDailyExpenseReview(user_id: string): Promise<void> {
   const now = new Date();
   const yesterdayDate = new Date(now);
   yesterdayDate.setDate(now.getDate() - 1);
-
   const yesterdayStr = toDateStr(yesterdayDate);
-  const historyEnd = toDateStr(new Date(yesterdayDate.getTime() - 86400000)); // day before yesterday
-  const historyStart = addDays(historyEnd, -29); // 30 days ending day-before-yesterday
 
-  const [yesterdayTxns, historyTxns] = await Promise.all([
-    fetchAllTxns(user_id, yesterdayStr, yesterdayStr),
-    fetchAllTxns(user_id, historyStart, historyEnd),
-  ]);
+  try {
+    const historyEnd = addDays(yesterdayStr, -1);
+    const historyStart = addDays(historyEnd, -29); // 30 days ending day-before-yesterday
 
-  const yesterdayTotal = sumExpenses(yesterdayTxns);
-  const historyTotal = sumExpenses(historyTxns);
-  const dailyAverage = historyTotal / 30;
+    const [yesterdayTxns, historyTxns] = await Promise.all([
+      fetchAllTxns(user_id, yesterdayStr, yesterdayStr),
+      fetchAllTxns(user_id, historyStart, historyEnd),
+    ]);
 
-  const findings: InsightFinding[] = [];
+    const yesterdayTotal = sumExpenses(yesterdayTxns);
+    const historyTotal = sumExpenses(historyTxns);
+    const dailyAverage = historyTotal / 30;
 
-  findings.push({
-    severity: 'info',
-    title: 'Daily spending summary',
-    body: `Spent ₪${fmt(yesterdayTotal)} yesterday (30-day daily average: ₪${fmt(dailyAverage)}).`,
-  });
+    const findings: InsightFinding[] = [];
 
-  if (yesterdayTotal > HIGH_SPEND_RATIO * dailyAverage && yesterdayTotal > HIGH_SPEND_MIN_TOTAL) {
-    const overPct = dailyAverage > 0
-      ? Math.round(((yesterdayTotal - dailyAverage) / dailyAverage) * 100)
-      : 0;
     findings.push({
-      severity: 'warning',
-      title: 'Higher than usual day',
-      body: `Yesterday's spend was ${overPct}% above your daily average.`,
+      severity: 'info',
+      title: 'Daily spending summary',
+      body: `Spent ₪${fmt(yesterdayTotal)} yesterday (30-day daily average: ₪${fmt(dailyAverage)}).`,
     });
-  }
 
-  for (const t of yesterdayTxns) {
-    const amount = getTransactionAmount(t);
-    if (Math.abs(amount) >= LARGE_TXN_THRESHOLD) {
-      const description = getTransactionTextSource(t);
+    if (yesterdayTotal > HIGH_SPEND_RATIO * dailyAverage && yesterdayTotal > HIGH_SPEND_MIN_TOTAL) {
+      const overPct = dailyAverage > 0
+        ? Math.round(((yesterdayTotal - dailyAverage) / dailyAverage) * 100)
+        : 0;
       findings.push({
-        severity: 'info',
-        title: 'Large transaction',
-        body: `${description}: ₪${fmt(Math.abs(amount))}`,
-        meta: { description, amount },
+        severity: 'warning',
+        title: 'Higher than usual day',
+        body: `Yesterday's spend was ${overPct}% above your daily average.`,
       });
     }
-  }
 
-  await agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, findings);
+    for (const t of yesterdayTxns) {
+      const amount = getTransactionAmount(t);
+      if (Math.abs(amount) >= LARGE_TXN_THRESHOLD) {
+        const description = getTransactionTextSource(t);
+        findings.push({
+          severity: 'info',
+          title: 'Large transaction',
+          body: `${description}: ₪${fmt(Math.abs(amount))}`,
+          meta: { description, amount },
+        });
+      }
+    }
+
+    await agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, findings);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, [{
+      severity: 'warning',
+      title: 'Analysis unavailable',
+      body: `Daily expense review could not complete: ${msg}`,
+    }]);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -141,49 +149,59 @@ export async function runDailyExpenseReview(user_id: string): Promise<void> {
 
 export async function runWeeklySummary(user_id: string): Promise<void> {
   const todayStr = toDateStr(new Date());
-  const thisWeekStart = addDays(todayStr, -6);  // last 7 days ending today
-  const lastWeekEnd = addDays(todayStr, -7);    // day before this week started
-  const lastWeekStart = addDays(todayStr, -13); // 7 days ending lastWeekEnd
 
-  const [thisWeekTxns, lastWeekTxns] = await Promise.all([
-    fetchAllTxns(user_id, thisWeekStart, todayStr),
-    fetchAllTxns(user_id, lastWeekStart, lastWeekEnd),
-  ]);
+  try {
+    const thisWeekStart = addDays(todayStr, -6);  // last 7 days ending today
+    const lastWeekEnd = addDays(todayStr, -7);    // day before this week started
+    const lastWeekStart = addDays(todayStr, -13); // 7 days ending lastWeekEnd
 
-  const thisWeekTotal = sumExpenses(thisWeekTxns);
-  const lastWeekTotal = sumExpenses(lastWeekTxns);
+    const [thisWeekTxns, lastWeekTxns] = await Promise.all([
+      fetchAllTxns(user_id, thisWeekStart, todayStr),
+      fetchAllTxns(user_id, lastWeekStart, lastWeekEnd),
+    ]);
 
-  const findings: InsightFinding[] = [];
+    const thisWeekTotal = sumExpenses(thisWeekTxns);
+    const lastWeekTotal = sumExpenses(lastWeekTxns);
 
-  let deltaLabel = '0%';
-  let deltaNum = 0;
-  if (lastWeekTotal > 0) {
-    deltaNum = ((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100;
-    const sign = deltaNum >= 0 ? '+' : '-';
-    deltaLabel = `${sign}${pct(deltaNum)}%`;
-  }
+    const findings: InsightFinding[] = [];
 
-  findings.push({
-    severity: 'info',
-    title: 'Weekly spending',
-    body: `This week: ₪${fmt(thisWeekTotal)} vs last week: ₪${fmt(lastWeekTotal)} (${deltaLabel}).`,
-  });
+    let deltaLabel = '0%';
+    let deltaNum = 0;
+    if (lastWeekTotal > 0) {
+      deltaNum = ((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100;
+      const sign = deltaNum >= 0 ? '+' : '-';
+      deltaLabel = `${sign}${pct(deltaNum)}%`;
+    }
 
-  if (deltaNum > WEEKLY_CHANGE_THRESHOLD_PCT) {
-    findings.push({
-      severity: 'warning',
-      title: 'Spending up this week',
-      body: `This week's spending is ${pct(deltaNum)}% higher than last week (₪${fmt(thisWeekTotal)} vs ₪${fmt(lastWeekTotal)}).`,
-    });
-  } else if (deltaNum < -WEEKLY_CHANGE_THRESHOLD_PCT) {
     findings.push({
       severity: 'info',
-      title: 'Spending down this week',
-      body: `This week's spending is ${pct(deltaNum)}% lower than last week (₪${fmt(thisWeekTotal)} vs ₪${fmt(lastWeekTotal)}).`,
+      title: 'Weekly spending',
+      body: `This week: ₪${fmt(thisWeekTotal)} vs last week: ₪${fmt(lastWeekTotal)} (${deltaLabel}).`,
     });
-  }
 
-  await agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, findings);
+    if (deltaNum > WEEKLY_CHANGE_THRESHOLD_PCT) {
+      findings.push({
+        severity: 'warning',
+        title: 'Spending up this week',
+        body: `This week's spending is ${pct(deltaNum)}% higher than last week (₪${fmt(thisWeekTotal)} vs ₪${fmt(lastWeekTotal)}).`,
+      });
+    } else if (deltaNum < -WEEKLY_CHANGE_THRESHOLD_PCT) {
+      findings.push({
+        severity: 'info',
+        title: 'Spending down this week',
+        body: `This week's spending is ${pct(deltaNum)}% lower than last week (₪${fmt(thisWeekTotal)} vs ₪${fmt(lastWeekTotal)}).`,
+      });
+    }
+
+    await agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, findings);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, [{
+      severity: 'warning',
+      title: 'Analysis unavailable',
+      body: `Weekly summary could not complete: ${msg}`,
+    }]);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -192,33 +210,43 @@ export async function runWeeklySummary(user_id: string): Promise<void> {
 
 export async function runMonthEndRisk(user_id: string): Promise<void> {
   const todayStr = toDateStr(new Date());
-  const projection = await calculateCashFlowProjection(user_id);
-  const { riskLevel, projectedEndBalance } = projection;
 
-  const balanceStr = projectedEndBalance !== null ? `₪${fmt(projectedEndBalance)}` : 'unknown';
-  const findings: InsightFinding[] = [];
+  try {
+    const projection = await calculateCashFlowProjection(user_id);
+    const { riskLevel, projectedEndBalance } = projection;
 
-  if (riskLevel === 'high' || (projectedEndBalance !== null && projectedEndBalance < 0)) {
-    findings.push({
-      severity: 'critical',
-      title: 'Cash flow risk',
-      body: `Projected month-end balance: ${balanceStr}. Risk level: high.`,
-    });
-  } else if (riskLevel === 'medium') {
-    findings.push({
+    const balanceStr = projectedEndBalance !== null ? `₪${fmt(projectedEndBalance)}` : 'unknown';
+    const findings: InsightFinding[] = [];
+
+    if (riskLevel === 'high' || (projectedEndBalance !== null && projectedEndBalance < 0)) {
+      findings.push({
+        severity: 'critical',
+        title: 'Cash flow risk',
+        body: `Projected month-end balance: ${balanceStr}. Risk level: high.`,
+      });
+    } else if (riskLevel === 'medium') {
+      findings.push({
+        severity: 'warning',
+        title: 'Month-end under pressure',
+        body: `Projected balance: ${balanceStr}. Watch spending this week.`,
+      });
+    } else {
+      findings.push({
+        severity: 'info',
+        title: 'Month on track',
+        body: `Projected month-end balance: ${balanceStr}.`,
+      });
+    }
+
+    await agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, findings);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, [{
       severity: 'warning',
-      title: 'Month-end under pressure',
-      body: `Projected balance: ${balanceStr}. Watch spending this week.`,
-    });
-  } else {
-    findings.push({
-      severity: 'info',
-      title: 'Month on track',
-      body: `Projected month-end balance: ${balanceStr}.`,
-    });
+      title: 'Analysis unavailable',
+      body: `Month-end risk analysis could not complete: ${msg}`,
+    }]);
   }
-
-  await agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, findings);
 }
 
 // ---------------------------------------------------------------------------
@@ -228,55 +256,76 @@ export async function runMonthEndRisk(user_id: string): Promise<void> {
 export async function runSubscriptionWatch(user_id: string): Promise<void> {
   const todayStr = toDateStr(new Date());
 
-  const [{ subscriptions }, renewals] = await Promise.all([
-    getSubscriptions(user_id),
-    getUpcomingRenewals(user_id, 14),
-  ]);
-
-  const findings: InsightFinding[] = [];
-
-  for (const sub of subscriptions) {
-    if (sub.priceChangePct !== null && sub.priceChangePct >= PRICE_INCREASE_MIN_PCT) {
-      findings.push({
+  try {
+    let subFindings: InsightFinding[] = [];
+    try {
+      const { subscriptions } = await getSubscriptions(user_id);
+      for (const sub of subscriptions) {
+        if (sub.priceChangePct !== null && sub.priceChangePct >= PRICE_INCREASE_THRESHOLD_PCT) {
+          subFindings.push({
+            severity: 'warning',
+            title: `Price increase: ${sub.name}`,
+            body: `Now ₪${fmt(sub.currentAmount)} (was ₪${fmt(sub.previousAmount ?? 0)}, +${Math.round(sub.priceChangePct)}%).`,
+            meta: {
+              merchantKey: sub.merchantKey,
+              currentAmount: sub.currentAmount,
+              previousAmount: sub.previousAmount,
+              priceChangePct: sub.priceChangePct,
+            },
+          });
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      subFindings = [{
         severity: 'warning',
-        title: `Price increase: ${sub.name}`,
-        body: `Now ₪${fmt(sub.currentAmount)} (was ₪${fmt(sub.previousAmount ?? 0)}, +${Math.round(sub.priceChangePct)}%).`,
-        meta: {
-          merchantKey: sub.merchantKey,
-          currentAmount: sub.currentAmount,
-          previousAmount: sub.previousAmount,
-          priceChangePct: sub.priceChangePct,
-        },
-      });
+        title: 'Subscription data unavailable',
+        body: `Could not load subscription data: ${msg}`,
+      }];
     }
-  }
 
-  for (const renewal of renewals) {
-    if (renewal.daysUntil <= RENEWAL_ALERT_WITHIN_DAYS) {
+    let renewalFindings: InsightFinding[] = [];
+    try {
+      const renewals = await getUpcomingRenewals(user_id, 14);
+      for (const renewal of renewals) {
+        if (renewal.daysUntil <= RENEWAL_ALERT_WITHIN_DAYS) {
+          renewalFindings.push({
+            severity: 'info',
+            title: `Upcoming renewal: ${renewal.description}`,
+            body: `₪${fmt(renewal.amount)} expected on ${renewal.nextExpected} (in ${renewal.daysUntil} day(s)).`,
+            meta: {
+              patternId: renewal.patternId,
+              merchantKey: renewal.merchantKey,
+              amount: renewal.amount,
+              nextExpected: renewal.nextExpected,
+              daysUntil: renewal.daysUntil,
+            },
+          });
+        }
+      }
+    } catch {
+      renewalFindings = [];
+    }
+
+    const findings: InsightFinding[] = [...subFindings, ...renewalFindings];
+
+    if (findings.length === 0) {
       findings.push({
         severity: 'info',
-        title: `Upcoming renewal: ${renewal.description}`,
-        body: `₪${fmt(renewal.amount)} expected on ${renewal.nextExpected} (in ${renewal.daysUntil} day(s)).`,
-        meta: {
-          patternId: renewal.patternId,
-          merchantKey: renewal.merchantKey,
-          amount: renewal.amount,
-          nextExpected: renewal.nextExpected,
-          daysUntil: renewal.daysUntil,
-        },
+        title: 'Subscriptions stable',
+        body: 'No significant subscription changes detected.',
       });
     }
-  }
 
-  if (findings.length === 0) {
-    findings.push({
-      severity: 'info',
-      title: 'Subscriptions stable',
-      body: 'No significant subscription changes detected.',
-    });
+    await agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, findings);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, [{
+      severity: 'warning',
+      title: 'Analysis unavailable',
+      body: `Subscription watch could not complete: ${msg}`,
+    }]);
   }
-
-  await agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, findings);
 }
 
 // ---------------------------------------------------------------------------
@@ -288,59 +337,63 @@ export async function runIncomeDetection(user_id: string): Promise<void> {
   const todayStr = toDateStr(now);
 
   if (now.getDate() > INCOME_SKIP_DAY) {
-    await agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, [{
-      severity: 'info',
-      title: 'Income check skipped',
-      body: 'Runs in the first 12 days of each month.',
-    }]);
     return;
   }
 
-  const currentMonthStart = monthBounds(now).start;
+  try {
+    const currentMonthStart = monthBounds(now).start;
 
-  const priorMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const priorBounds = monthBounds(priorMonthDate);
+    const priorMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const priorBounds = monthBounds(priorMonthDate);
 
-  const [currentBankTxns, priorBankTxns] = await Promise.all([
-    fetchBankTxns(user_id, currentMonthStart, todayStr),
-    fetchBankTxns(user_id, priorBounds.start, priorBounds.end),
-  ]);
+    const [currentBankTxns, priorBankTxns] = await Promise.all([
+      fetchBankTxns(user_id, currentMonthStart, todayStr),
+      fetchBankTxns(user_id, priorBounds.start, priorBounds.end),
+    ]);
 
-  const currentIncome = sumIncome(currentBankTxns);
-  const priorIncome = sumIncome(priorBankTxns);
+    const currentIncome = sumIncome(currentBankTxns);
+    const priorIncome = sumIncome(priorBankTxns);
 
-  const findings: InsightFinding[] = [];
+    const findings: InsightFinding[] = [];
 
-  findings.push({
-    severity: 'info',
-    title: 'Income this month',
-    body: `Received ₪${fmt(currentIncome)} in income so far this month.`,
-  });
-
-  if (priorIncome > INCOME_PRIOR_MIN && currentIncome === 0) {
     findings.push({
-      severity: 'warning',
-      title: 'No income detected',
-      body: 'You had income last month but none detected yet this month.',
+      severity: 'info',
+      title: 'Income this month',
+      body: `Received ₪${fmt(currentIncome)} in income so far this month.`,
     });
-  } else if (currentIncome > 0 && priorIncome > 0) {
-    const change = ((currentIncome - priorIncome) / priorIncome) * 100;
-    if (change > INCOME_CHANGE_THRESHOLD_PCT) {
-      findings.push({
-        severity: 'info',
-        title: 'Income up',
-        body: `Income ₪${fmt(currentIncome)} this month vs ₪${fmt(priorIncome)} last month (+${pct(change)}%).`,
-      });
-    } else if (change < -INCOME_CHANGE_THRESHOLD_PCT) {
+
+    if (priorIncome > INCOME_PRIOR_MIN && currentIncome === 0) {
       findings.push({
         severity: 'warning',
-        title: 'Income down',
-        body: `Income ₪${fmt(currentIncome)} this month vs ₪${fmt(priorIncome)} last month (-${pct(change)}%).`,
+        title: 'No income detected',
+        body: 'You had income last month but none detected yet this month.',
       });
+    } else if (currentIncome > 0 && priorIncome > 0) {
+      const change = ((currentIncome - priorIncome) / priorIncome) * 100;
+      if (change > INCOME_CHANGE_THRESHOLD_PCT) {
+        findings.push({
+          severity: 'info',
+          title: 'Income up',
+          body: `Income ₪${fmt(currentIncome)} this month vs ₪${fmt(priorIncome)} last month (+${pct(change)}%).`,
+        });
+      } else if (change < -INCOME_CHANGE_THRESHOLD_PCT) {
+        findings.push({
+          severity: 'warning',
+          title: 'Income down',
+          body: `Income ₪${fmt(currentIncome)} this month vs ₪${fmt(priorIncome)} last month (-${pct(change)}%).`,
+        });
+      }
     }
-  }
 
-  await agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, findings);
+    await agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, findings);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, [{
+      severity: 'warning',
+      title: 'Analysis unavailable',
+      body: `Income detection could not complete: ${msg}`,
+    }]);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -454,67 +507,77 @@ const detectDuplicateCharges = (txns: RawTxn[]): DuplicateCandidate[] => {
 export async function runAnomalyDetection(user_id: string): Promise<void> {
   const now = new Date();
   const todayStr = toDateStr(now);
-  const current = monthBounds(now);
-  const historyStart = monthBounds(new Date(now.getFullYear(), now.getMonth() - ANOMALY_LOOKBACK_MONTHS, 1)).start;
-  const historyEnd = monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1)).end;
 
-  const [currentData, historyData] = await Promise.all([
-    fetchCompletedTransactions(user_id, { eventDate: { $gte: current.start, $lte: todayStr } }),
-    fetchCompletedTransactions(user_id, { eventDate: { $gte: historyStart, $lte: historyEnd } }),
-  ]);
+  try {
+    const current = monthBounds(now);
+    const historyStart = monthBounds(new Date(now.getFullYear(), now.getMonth() - ANOMALY_LOOKBACK_MONTHS, 1)).start;
+    const historyEnd = monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1)).end;
 
-  const currentSpend = buildDeduplicatedSpendMap(currentData.regularTxns, currentData.cardTxns);
-  const historySpend = buildDeduplicatedSpendMap(historyData.regularTxns, historyData.cardTxns);
+    const [currentData, historyData] = await Promise.all([
+      fetchCompletedTransactions(user_id, { eventDate: { $gte: current.start, $lte: todayStr } }),
+      fetchCompletedTransactions(user_id, { eventDate: { $gte: historyStart, $lte: historyEnd } }),
+    ]);
 
-  const anomalies = Array.from(currentSpend.entries())
-    .map(([merchant, spent]) => {
-      const baseline = (historySpend.get(merchant) ?? 0) / ANOMALY_LOOKBACK_MONTHS;
-      return { merchant, spent, baseline, delta: spent - baseline };
-    })
-    .filter((a) => a.baseline > 0 && a.spent >= a.baseline * ANOMALY_RATIO && a.delta >= ANOMALY_MIN_DELTA)
-    .sort((a, b) => b.delta - a.delta)
-    .slice(0, ANOMALY_MAX_FLAGS);
+    const currentSpend = buildDeduplicatedSpendMap(currentData.regularTxns, currentData.cardTxns);
+    const historySpend = buildDeduplicatedSpendMap(historyData.regularTxns, historyData.cardTxns);
 
-  const currentAllTxns = [...currentData.regularTxns, ...currentData.cardTxns] as RawTxn[];
-  const duplicates = detectDuplicateCharges(currentAllTxns);
+    const anomalies = Array.from(currentSpend.entries())
+      .map(([merchant, spent]) => {
+        const baseline = (historySpend.get(merchant) ?? 0) / ANOMALY_LOOKBACK_MONTHS;
+        return { merchant, spent, baseline, delta: spent - baseline };
+      })
+      .filter((a) => a.baseline > 0 && a.spent >= a.baseline * ANOMALY_RATIO && a.delta >= ANOMALY_MIN_DELTA)
+      .sort((a, b) => b.delta - a.delta)
+      .slice(0, ANOMALY_MAX_FLAGS);
 
-  const findings: InsightFinding[] = [];
+    const currentAllTxns = [...currentData.regularTxns, ...currentData.cardTxns] as RawTxn[];
+    const duplicates = detectDuplicateCharges(currentAllTxns);
 
-  for (const anomaly of anomalies) {
-    findings.push({
+    const findings: InsightFinding[] = [];
+
+    for (const anomaly of anomalies) {
+      findings.push({
+        severity: 'warning',
+        title: `Unusual spend at ${anomaly.merchant}`,
+        body: `₪${fmt(anomaly.spent)} this month vs a ₪${fmt(anomaly.baseline)} monthly average.`,
+        meta: {
+          merchant: anomaly.merchant,
+          spent: Math.round(anomaly.spent),
+          baseline: Math.round(anomaly.baseline),
+          delta: Math.round(anomaly.delta),
+        },
+      });
+    }
+
+    for (const dup of duplicates) {
+      findings.push({
+        severity: 'warning',
+        title: `Possible duplicate charge at ${dup.merchant}`,
+        body: `₪${fmt(dup.amount)} appears ${dup.count} time(s) within 48 hours.`,
+        meta: {
+          merchant: dup.merchant,
+          amount: dup.amount,
+          count: dup.count,
+          windowHours: dup.windowHours,
+        },
+      });
+    }
+
+    if (findings.length === 0) {
+      findings.push({
+        severity: 'info',
+        title: 'No anomalies detected',
+        body: 'Spending looks normal this month.',
+      });
+    }
+
+    await agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, findings);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, [{
       severity: 'warning',
-      title: `Unusual spend at ${anomaly.merchant}`,
-      body: `₪${fmt(anomaly.spent)} this month vs a ₪${fmt(anomaly.baseline)} monthly average.`,
-      meta: {
-        merchant: anomaly.merchant,
-        spent: Math.round(anomaly.spent),
-        baseline: Math.round(anomaly.baseline),
-        delta: Math.round(anomaly.delta),
-      },
-    });
+      title: 'Analysis unavailable',
+      body: `Anomaly detection could not complete: ${msg}`,
+    }]);
   }
-
-  for (const dup of duplicates) {
-    findings.push({
-      severity: 'warning',
-      title: `Possible duplicate charge at ${dup.merchant}`,
-      body: `₪${fmt(dup.amount)} appears ${dup.count} times within ${dup.windowHours} hour(s).`,
-      meta: {
-        merchant: dup.merchant,
-        amount: dup.amount,
-        count: dup.count,
-        windowHours: dup.windowHours,
-      },
-    });
-  }
-
-  if (findings.length === 0) {
-    findings.push({
-      severity: 'info',
-      title: 'No anomalies detected',
-      body: 'Spending looks normal this month.',
-    });
-  }
-
-  await agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, findings);
 }
