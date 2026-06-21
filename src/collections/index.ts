@@ -9,6 +9,7 @@ import { AgentPendingActions } from './AgentPendingActions';
 import { UserAiSettings } from './UserAiSettings';
 import { VectorMemory } from './VectorMemory';
 import { Notifications } from './Notifications';
+import { AgentInsights } from './AgentInsights';
 
 export {
   Accounts,
@@ -22,4 +23,5 @@ export {
   UserAiSettings,
   VectorMemory,
   Notifications,
+  AgentInsights,
 };

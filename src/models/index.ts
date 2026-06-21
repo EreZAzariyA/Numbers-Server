@@ -8,6 +8,7 @@ import { ICardTransactionModel } from "../collections/Card-Transactions";
 import { IAccountModel } from "../collections/Banks";
 import { ICategories } from "../collections/Categories";
 import { IRecurringPatternModel } from "./recurring-pattern-model";
+import { IAgentInsightModel, AgentInsightSchema, InsightType, InsightSeverity, InsightFinding } from "./agent-insight-model";
 
 export {
   ClientError,
@@ -23,4 +24,9 @@ export {
   IAccountModel,
   ICategories,
   IRecurringPatternModel,
+  IAgentInsightModel,
+  AgentInsightSchema,
+  InsightType,
+  InsightSeverity,
+  InsightFinding,
 };
