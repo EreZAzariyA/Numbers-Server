@@ -48,6 +48,7 @@ import {
 } from './agent/tool-helpers';
 import { createReadOnlyTools } from './agent/read-tools';
 import { createMutationTools } from './agent/mutation-tools';
+import { createDigestTool } from './agent/digest-tool';
 import { getToolProgressLabel } from './agent/tool-labels';
 import agentMemory from './agent-memory';
 
@@ -1349,6 +1350,7 @@ If you cannot verify the answer from a tool result, say that you could not verif
   private getToolDefinitions(): AgentToolDefinition[] {
     return [
       ...this.getReadOnlyToolDefinitions(),
+      ...createDigestTool(this),
       ...this.getMutationToolDefinitions(),
     ];
   }
