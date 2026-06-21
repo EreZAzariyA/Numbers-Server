@@ -48,7 +48,7 @@ app.use(cors({
   origin: config.corsUrls,
   methods: "GET, HEAD, PUT, PATCH, POST, DELETE"
 }));
-app.use(globalLimiter);
+app.use('/api', globalLimiter);
 
 app.use('/api/auth', authLimiter, authenticationRouter);
 app.use('/api/users', verifyToken, usersRouter);
