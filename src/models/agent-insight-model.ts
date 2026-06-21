@@ -62,6 +62,7 @@ export const AgentInsightSchema = new Schema<IAgentInsightModel>({
       title: {
         type: String,
         required: true,
+        trim: true,
       },
       body: {
         type: String,
@@ -90,4 +91,4 @@ export const AgentInsightSchema = new Schema<IAgentInsightModel>({
 });
 
 AgentInsightSchema.index({ user_id: 1, type: 1, date: -1 });
-AgentInsightSchema.index({ user_id: 1, type: 1, date: 1 }, { unique: true });
+AgentInsightSchema.index({ user_id: 1, type: 1, date: -1 }, { unique: true });
