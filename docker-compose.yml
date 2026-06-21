@@ -5,16 +5,21 @@
 #
 # Redis is NOT managed by Docker — set REDIS_URL in .env to point at your external instance.
 #
-# CPU (default):
-#   docker compose up -d
+# Ollama — two modes (set in .env):
 #
-# GPU (requires NVIDIA Container Toolkit):
-#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#   Native (recommended): install Ollama on the host machine, then set:
+#     OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+#   The embedded-ollama Docker services are skipped automatically.
+#
+#   Embedded (Docker): omit OLLAMA_BASE_URL and set:
+#     COMPOSE_PROFILES=embedded-ollama
+#   Docker will pull the model and run Ollama inside the stack.
 #
 # Backend: http://localhost:5000
 
 services:
   ollama:
+    profiles: ["embedded-ollama"]
     image: ollama/ollama
     ports:
       - "127.0.0.1:11434:11434"
@@ -35,6 +40,7 @@ services:
   # One-shot service: pulls the model into the shared ollama_data volume.
   # Exits after pull completes. On subsequent starts the model is already present.
   ollama-init:
+    profiles: ["embedded-ollama"]
     image: ollama/ollama
     depends_on:
       ollama:
