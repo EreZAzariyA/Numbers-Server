@@ -1,5 +1,5 @@
 import { RequestHandler } from 'express';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { isRedisAvailable, redisClient } from '../utils/connectRedis';
 import { logRedisFeatureMode, logRedisOperationFailure } from '../utils/redis-runtime';
@@ -15,6 +15,14 @@ type AdaptiveLimiterState = {
 };
 
 const adaptiveLimiters: AdaptiveLimiterState[] = [];
+
+const IPV4_WITH_PORT = /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/;
+
+const sanitizeIp = (ip: string | undefined): string => {
+  if (!ip) return 'unknown';
+  const match = IPV4_WITH_PORT.exec(ip);
+  return match ? match[1] : ip;
+};
 
 const createRedisStore = (prefix: string) => new RedisStore({
   sendCommand: (...args: string[]) => redisClient.sendCommand(args),
@@ -75,6 +83,7 @@ export const globalLimiter = createAdaptiveLimiter('rl:global:', 'rate-limit', {
   max: config.rateLimits.global.max,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => sanitizeIp(req.ip),
   message: { message: 'Too many requests, please try again later.' },
 });
 
@@ -83,6 +92,7 @@ export const authLimiter = createAdaptiveLimiter('rl:auth:', 'rate-limit', {
   max: config.rateLimits.auth.max,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => sanitizeIp(req.ip),
   message: { message: 'Too many login attempts, please try again later.' },
 });
 
@@ -91,7 +101,7 @@ export const bankScrapingLimiter = createAdaptiveLimiter('rl:bank:', 'rate-limit
   max: config.rateLimits.bankScraping.max,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.params.user_id || ipKeyGenerator(req.ip ?? ''),
+  keyGenerator: (req) => req.params.user_id || sanitizeIp(req.ip),
   message: { message: 'Too many bank scraping requests, please try again later.' },
 });
 
