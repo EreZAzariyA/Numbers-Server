@@ -1,60 +1,14 @@
 # Numbers backend stack — run from the Numbers-Server directory.
 #
-# The frontend is deployed to Vercel and is not part of this stack.
+# The frontend is built and served as static files from the server's public folder.
 # Variable substitution (${VAR}) reads Numbers-Server/.env — see .env.example.
 #
 # Redis is NOT managed by Docker — set REDIS_URL in .env to point at your external instance.
-#
-# Ollama — two modes (set in .env):
-#
-#   Native (recommended): install Ollama on the host machine, then set:
-#     OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
-#   The embedded-ollama Docker services are skipped automatically.
-#
-#   Embedded (Docker): omit OLLAMA_BASE_URL and set:
-#     COMPOSE_PROFILES=embedded-ollama
-#   Docker will pull the model and run Ollama inside the stack.
+# Ollama runs natively on the host; set OLLAMA_BASE_URL in .env to reach it.
 #
 # Backend: http://localhost:5000
 
 services:
-  ollama:
-    profiles: ["embedded-ollama"]
-    image: ollama/ollama
-    ports:
-      - "127.0.0.1:11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - numbers-net
-    environment:
-      OLLAMA_KEEP_ALIVE: 30m
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    restart: unless-stopped
-
-  # One-shot service: pulls the model into the shared ollama_data volume.
-  # Exits after pull completes. On subsequent starts the model is already present.
-  ollama-init:
-    profiles: ["embedded-ollama"]
-    image: ollama/ollama
-    depends_on:
-      ollama:
-        condition: service_healthy
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "pull"]
-    command: ["${OLLAMA_MODEL:-qwen2.5:3b}"]
-    networks:
-      - numbers-net
-    restart: "no"
-
   server:
     build:
       context: .
@@ -66,8 +20,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      NODE_ENV: production
-      PORT: 5000
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${PORT}
       MONGO_CONNECTION_STRING: ${MONGO_CONNECTION_STRING}
       REDIS_URL: ${REDIS_URL}
       QDRANT_URL: ${QDRANT_URL}
@@ -80,6 +34,7 @@ services:
       BANK_SCRAPER_LOOKBACK_MONTHS: ${BANK_SCRAPER_LOOKBACK_MONTHS:-12}
       BANK_SCRAPER_TIMEOUT_MS: ${BANK_SCRAPER_TIMEOUT_MS:-60000}
       BANK_SCRAPER_HEADLESS: ${BANK_SCRAPER_HEADLESS:-true}
+      ENABLE_PATTERN_PERSISTENCE: ${ENABLE_PATTERN_PERSISTENCE:-false}
       ENABLE_NIGHTLY_REFRESH: ${ENABLE_NIGHTLY_REFRESH:-true}
       NIGHTLY_REFRESH_CRON: "${NIGHTLY_REFRESH_CRON:-0 2 * * *}"
       ENABLE_ALERTS_GENERATION: ${ENABLE_ALERTS_GENERATION:-true}
@@ -93,14 +48,11 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-}
     networks:
       - numbers-net
     restart: unless-stopped
-
-volumes:
-  ollama_data:
 
 networks:
   numbers-net:

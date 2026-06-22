@@ -1,90 +1,8 @@
 require('dotenv').config();
 import { name, version } from '../../package.json';
 import Logger from 'bunyan';
-import { ENV_TYPE, getLogger, getLogLevel } from './helpers';
-
-type RateLimitSettings = {
-  windowMs: number;
-  max: number;
-};
-
-type RateLimitConfig = {
-  global: RateLimitSettings;
-  auth: RateLimitSettings;
-  bankScraping: RateLimitSettings;
-};
-
-type BankScraperConfig = {
-  lookbackMonths: number;
-  defaultTimeoutMs: number;
-  headless: boolean;
-};
-
-type WorkerConfig = {
-  nightlyRefreshEnabled: boolean;
-  nightlyRefreshCron: string;
-  scrapingConcurrency: number;
-  transactionImportConcurrency: number;
-  patternRecomputeConcurrency: number;
-  alertsGenerationEnabled: boolean;
-  alertsGenerationCron: string;
-  proactiveAnalysisEnabled: boolean;
-  proactiveAnalysisDailyCron: string;
-  proactiveAnalysisWeeklyCron: string;
-  proactiveAnalysisIncomeCron: string;
-  proactiveAnalysisDigestCron: string;
-};
-
-type QueueConfig = {
-  removeOnCompleteAgeSeconds: number;
-  removeOnFailAgeSeconds: number;
-  nightlyRemoveOnCompleteAgeSeconds: number;
-  nightlyRemoveOnFailAgeSeconds: number;
-  patternRecomputeDebounceMs: number;
-};
-
-type RuntimeDefaults = {
-  rateLimits: RateLimitConfig;
-  bankScraper: BankScraperConfig;
-  workers: WorkerConfig;
-  queue: QueueConfig;
-};
-
-const getEnvNumber = (key: string, fallback: number, min = 0): number => {
-  const raw = process.env[key];
-  if (!raw) {
-    return fallback;
-  }
-
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < min) {
-    return fallback;
-  }
-
-  return Math.floor(value);
-};
-
-const getEnvBoolean = (key: string, fallback: boolean): boolean => {
-  const raw = process.env[key]?.trim().toLowerCase();
-  if (!raw) {
-    return fallback;
-  }
-
-  if (['true', '1', 'yes', 'on'].includes(raw)) {
-    return true;
-  }
-
-  if (['false', '0', 'no', 'off'].includes(raw)) {
-    return false;
-  }
-
-  return fallback;
-};
-
-const getEnvString = (key: string, fallback: string): string => {
-  const raw = process.env[key]?.trim();
-  return raw || fallback;
-};
+import { ENV_TYPE, getEnvBoolean, getEnvNumber, getEnvString, getLogger, getLogLevel, requireEnv } from './helpers';
+import type { BankScraperConfig, QueueConfig, RateLimitConfig, RuntimeDefaults, WorkerConfig } from './types';
 
 const getRuntimeConfig = (defaults: RuntimeDefaults): RuntimeDefaults => ({
   rateLimits: {
@@ -137,7 +55,7 @@ const DEVELOPMENT_RUNTIME_DEFAULTS: RuntimeDefaults = {
   },
   bankScraper: {
     lookbackMonths: 12,
-    defaultTimeoutMs: 2 * 60 * 1000,
+    defaultTimeoutMs: 30 * 1000,
     headless: true,
   },
   workers: {
@@ -166,8 +84,8 @@ const DEVELOPMENT_RUNTIME_DEFAULTS: RuntimeDefaults = {
 const PRODUCTION_RUNTIME_DEFAULTS: RuntimeDefaults = {
   rateLimits: {
     global: { windowMs: 60 * 1000, max: 100 },
-    auth: { windowMs: 15 * 60 * 1000, max: 10 },
-    bankScraping: { windowMs: 60 * 60 * 1000, max: 10 },
+    auth: { windowMs: 15 * 60 * 1000, max: 5 },
+    bankScraping: { windowMs: 60 * 60 * 1000, max: 5 },
   },
   bankScraper: {
     lookbackMonths: 12,
@@ -198,7 +116,7 @@ const PRODUCTION_RUNTIME_DEFAULTS: RuntimeDefaults = {
 };
 
 abstract class Config {
-  public port: number = +process.env.PORT;
+  public port: number;
   public isProduction: boolean;
   public loginExpiresIn: number;
   public refreshTokenExpiresIn: number;
@@ -214,6 +132,17 @@ abstract class Config {
   public bankScraper: BankScraperConfig;
   public workers: WorkerConfig;
   public queue: QueueConfig;
+
+  public constructor() {
+    this.port = getEnvNumber('PORT', 5000, 1);
+    this.refreshTokenExpiresIn = 7 * 24 * 60 * 60;
+    this.mongoConnectionString = requireEnv('MONGO_CONNECTION_STRING');
+    this.redisUrl = requireEnv('REDIS_URL');
+    this.qdrantUrl = requireEnv('QDRANT_URL');
+    this.secretKey = requireEnv('SECRET_KEY');
+    this.googleClientId = requireEnv('GOOGLE_CLIENT_ID');
+    this.enablePatternPersistence = process.env.ENABLE_PATTERN_PERSISTENCE === 'true';
+  }
 };
 
 class DevelopmentConfig extends Config {
@@ -221,15 +150,8 @@ class DevelopmentConfig extends Config {
     super();
     this.isProduction = false;
     this.loginExpiresIn = 30 * 60 * 60;
-    this.refreshTokenExpiresIn = 7 * 24 * 60 * 60; // 7 days — outlives the 30h access token
-    this.mongoConnectionString = process.env.MONGO_CONNECTION_STRING;
-    this.redisUrl = process.env.REDIS_URL;
-    this.qdrantUrl = process.env.QDRANT_URL ?? 'http://localhost:6333';
     this.corsUrls = ['http://127.0.0.1:3000', 'http://localhost:3000', 'http://localhost:8080'];
     this.log = getLogger(name, version, getLogLevel(ENV_TYPE.DEVELOPMENT));
-    this.secretKey = 'secret';
-    this.googleClientId = process.env.GOOGLE_CLIENT_ID;
-    this.enablePatternPersistence = process.env.ENABLE_PATTERN_PERSISTENCE === 'true';
     const runtime = getRuntimeConfig(DEVELOPMENT_RUNTIME_DEFAULTS);
     this.rateLimits = runtime.rateLimits;
     this.bankScraper = runtime.bankScraper;
@@ -243,15 +165,8 @@ class ProductionConfig extends Config {
     super();
     this.isProduction = true;
     this.loginExpiresIn = 15 * 60;
-    this.refreshTokenExpiresIn = 7 * 24 * 60 * 60;
-    this.mongoConnectionString = process.env.MONGO_CONNECTION_STRING;
-    this.redisUrl = process.env.REDIS_URL;
-    this.qdrantUrl = process.env.QDRANT_URL ?? 'http://localhost:6333';
     this.corsUrls = ['http://localhost:3000', 'http://localhost:8080', 'https://ea-numbers.erezdev.com', 'https://ea-numbers.test.erezdev.com'];
     this.log = getLogger(name, version, getLogLevel(ENV_TYPE.PRODUCTION));
-    this.secretKey = process.env.SECRET_KEY;
-    this.googleClientId = process.env.GOOGLE_CLIENT_ID;
-    this.enablePatternPersistence = process.env.ENABLE_PATTERN_PERSISTENCE === 'true';
     const runtime = getRuntimeConfig(PRODUCTION_RUNTIME_DEFAULTS);
     this.rateLimits = runtime.rateLimits;
     this.bankScraper = runtime.bankScraper;

@@ -3,6 +3,33 @@ import { IUserModel } from "../models";
 import { CompanyTypes } from "israeli-bank-scrapers-for-e.a-servers";
 import { MainTransactionType } from "./types";
 
+export const requireEnv = (key: string): string => {
+  const value = process.env[key]?.trim();
+  if (!value) throw new Error(`Missing required environment variable: ${key}`);
+  return value;
+};
+
+export const getEnvNumber = (key: string, fallback: number, min = 0): number => {
+  const raw = process.env[key];
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < min) return fallback;
+  return Math.floor(value);
+};
+
+export const getEnvBoolean = (key: string, fallback: boolean): boolean => {
+  const raw = process.env[key]?.trim().toLowerCase();
+  if (!raw) return fallback;
+  if (['true', '1', 'yes', 'on'].includes(raw)) return true;
+  if (['false', '0', 'no', 'off'].includes(raw)) return false;
+  return fallback;
+};
+
+export const getEnvString = (key: string, fallback: string): string => {
+  const raw = process.env[key]?.trim();
+  return raw || fallback;
+};
+
 export const MAX_LOGIN_ATTEMPTS = 5;
 
 export enum ThemeColors {

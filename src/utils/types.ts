@@ -1,5 +1,52 @@
 import { ICardTransactionModel, ITransactionModel } from "../models";
 
+export type RateLimitSettings = {
+  windowMs: number;
+  max: number;
+};
+
+export type RateLimitConfig = {
+  global: RateLimitSettings;
+  auth: RateLimitSettings;
+  bankScraping: RateLimitSettings;
+};
+
+export type BankScraperConfig = {
+  lookbackMonths: number;
+  defaultTimeoutMs: number;
+  headless: boolean;
+};
+
+export type WorkerConfig = {
+  nightlyRefreshEnabled: boolean;
+  nightlyRefreshCron: string;
+  scrapingConcurrency: number;
+  transactionImportConcurrency: number;
+  patternRecomputeConcurrency: number;
+  alertsGenerationEnabled: boolean;
+  alertsGenerationCron: string;
+  proactiveAnalysisEnabled: boolean;
+  proactiveAnalysisDailyCron: string;
+  proactiveAnalysisWeeklyCron: string;
+  proactiveAnalysisIncomeCron: string;
+  proactiveAnalysisDigestCron: string;
+};
+
+export type QueueConfig = {
+  removeOnCompleteAgeSeconds: number;
+  removeOnFailAgeSeconds: number;
+  nightlyRemoveOnCompleteAgeSeconds: number;
+  nightlyRemoveOnFailAgeSeconds: number;
+  patternRecomputeDebounceMs: number;
+};
+
+export type RuntimeDefaults = {
+  rateLimits: RateLimitConfig;
+  bankScraper: BankScraperConfig;
+  workers: WorkerConfig;
+  queue: QueueConfig;
+};
+
 export type GoogleUserType = {
   sub: string;
   name: string;
