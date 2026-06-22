@@ -1,29 +1,28 @@
 import { AgentInsights } from '../collections';
-import { IAgentInsightModel, InsightType, InsightFinding } from '../models';
+import { IAgentInsightModel, InsightType, InsightFinding, InsightLang } from '../models';
 import { Types } from 'mongoose';
 
 class AgentInsightsLogic {
-  /**
-   * Upserts an agent insight document using replaceOne with upsert: true.
-   * Replaces the entire document for the given user, type, and date combination.
-   */
   upsert = async (
     user_id: string,
     type: InsightType,
     date: string,
     findings: InsightFinding[],
     aiSummary?: string,
+    language: InsightLang = 'en',
   ): Promise<void> => {
     await AgentInsights.replaceOne(
       {
         user_id: new Types.ObjectId(user_id),
         type,
         date,
+        language,
       },
       {
         user_id: new Types.ObjectId(user_id),
         type,
         date,
+        language,
         findings,
         ...(aiSummary && { aiSummary }),
         generatedAt: new Date(),
@@ -32,19 +31,15 @@ class AgentInsightsLogic {
     ).exec();
   };
 
-  /**
-   * Retrieves the most recent dashboard digest for the user.
-   * Returns the latest document by generatedAt, or null if none exists.
-   */
   getLatestDigest = async (
     user_id: string,
+    language: InsightLang = 'en',
   ): Promise<{ aiSummary?: string; findings: InsightFinding[]; generatedAt: Date } | null> => {
-    const result = await AgentInsights.findOne(
-      {
-        user_id: new Types.ObjectId(user_id),
-        type: 'dashboard-digest',
-      },
-    )
+    const result = await AgentInsights.findOne({
+      user_id: new Types.ObjectId(user_id),
+      type: 'dashboard-digest',
+      language,
+    })
       .sort({ generatedAt: -1 })
       .lean<IAgentInsightModel>()
       .exec();
@@ -58,18 +53,16 @@ class AgentInsightsLogic {
     };
   };
 
-  /**
-   * Retrieves recent findings for the user, excluding dashboard digests.
-   * Returns all documents where date >= sinceDate, sorted by generatedAt descending.
-   */
   getRecentFindings = async (
     user_id: string,
     sinceDate: string,
+    language: InsightLang = 'en',
   ): Promise<IAgentInsightModel[]> =>
     AgentInsights.find({
       user_id: new Types.ObjectId(user_id),
       type: { $ne: 'dashboard-digest' },
       date: { $gte: sinceDate },
+      language,
     })
       .sort({ generatedAt: -1 })
       .lean<IAgentInsightModel[]>()
