@@ -205,8 +205,8 @@ If you cannot verify the answer from a tool result, say that you could not verif
       // Classify intent and compose agent-specific tools + system prompt segment
       const classification = await agentManager.classify(message, normalizedLanguage, runtime);
       const allTools = this.getToolDefinitions();
-      const canGroundData = allTools.some((t) => t.mode === 'read');
       const composed = agentManager.compose(classification.agentIds, allTools);
+      const canGroundData = composed.tools.some((t) => t.mode === 'read');
 
       // Build the final system instruction with the agent segment appended
       const agentSystemInstruction = composed.systemPromptSegment
