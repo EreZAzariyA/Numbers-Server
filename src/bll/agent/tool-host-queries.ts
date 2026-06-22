@@ -307,7 +307,7 @@ export async function getCreditCardSnapshotForAgent(user_id: string): Promise<Re
 
 export async function detectSubscriptionPriceChangesForAgent(
   user_id: string,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const groups = await detectRecurringTransactions(user_id, { dateBasis: 'event' });
   const minChangeAmount = Math.abs(Number(args.min_change_amount) || 5);
@@ -384,35 +384,35 @@ export async function detectSubscriptionPriceChangesForAgent(
 
 export async function searchTransactionsForAgent(
   user_id: string,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<{
   totalMatches: number;
   transactions: Array<Record<string, unknown>>;
   appliedFilters: Record<string, unknown>;
 }> {
-  const transactionType = normalizeTransactionType(args.transaction_type);
+  const transactionType = normalizeTransactionType(args.transaction_type as string | undefined);
   const direction = args.direction === 'income' || args.direction === 'expense'
-    ? args.direction
+    ? args.direction as string
     : 'all';
   const status = args.status === 'completed' || args.status === 'pending'
-    ? args.status
+    ? args.status as string
     : 'all';
   const sortBy = args.sort_by === 'amount' ? 'amount' : 'date';
   const sortOrder = args.sort_order === 'asc' ? 'asc' : 'desc';
   const limit = Math.min(Math.max(Number(args.limit) || 20, 1), 100);
-  const startDate = args.start_date || '1900-01-01';
-  const endDate = args.end_date || '2999-12-31';
+  const startDate = (args.start_date as string) || '1900-01-01';
+  const endDate = (args.end_date as string) || '2999-12-31';
   const minAmount = args.min_amount !== undefined ? Math.abs(Number(args.min_amount) || 0) : null;
   const maxAmount = args.max_amount !== undefined ? Math.abs(Number(args.max_amount) || 0) : null;
 
   const category = args.category_id || args.category_name
     ? await resolveCategory(user_id, {
-      category_id: args.category_id,
-      category_name: args.category_name,
+      category_id: args.category_id as string | undefined,
+      category_name: args.category_name as string | undefined,
     })
     : null;
 
-  const query: Record<string, any> = {
+  const query: Record<string, unknown> = {
     user_id,
     eventDate: buildInclusiveDateRangeFilter(startDate, endDate),
   };
