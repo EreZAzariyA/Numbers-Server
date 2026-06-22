@@ -9,8 +9,11 @@ import {
   runAnomalyDetection,
 } from '../bll/analysis/proactive-analysis';
 import { generateDashboardDigest } from '../bll/analysis/digest-generator';
+import { generateAlertsForUser } from '../bll/alert-generation';
+import { triggerRefreshForUser } from '../workers/nightly-refresh';
 import { requireMatchingUserParam } from '../middlewares/require-user';
-import config from '../utils/config';
+import { isRedisAvailable } from '../utils/connectRedis';
+import { createRedisQueueUnavailableError } from '../utils/redis-runtime';
 import { addDays, toDateStr } from '../utils/date-helpers';
 
 const router = express.Router();
@@ -51,14 +54,10 @@ router.get('/:user_id/findings', async (req: Request, res: Response, next: NextF
   }
 });
 
-/** POST /api/agent-insights/:user_id/trigger — run all analyses immediately (dev-only). */
+/** POST /api/agent-insights/:user_id/trigger — run all proactive analyses and regenerate digest. */
 router.post('/:user_id/trigger', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { user_id } = req.params;
-
-    if (config.isProduction) {
-      return res.status(404).json({ error: 'Not found' });
-    }
 
     await Promise.all([
       runDailyExpenseReview(user_id),
@@ -72,6 +71,31 @@ router.post('/:user_id/trigger', async (req: Request, res: Response, next: NextF
     await generateDashboardDigest(user_id, 'en');
 
     res.status(200).json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/agent-insights/:user_id/trigger-alerts — regenerate alerts immediately. */
+router.post('/:user_id/trigger-alerts', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { user_id } = req.params;
+    await generateAlertsForUser(user_id);
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/agent-insights/:user_id/trigger-refresh — queue bank refresh for this user. */
+router.post('/:user_id/trigger-refresh', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { user_id } = req.params;
+    if (!isRedisAvailable()) {
+      throw createRedisQueueUnavailableError('manual-bank-refresh');
+    }
+    const queued = await triggerRefreshForUser(user_id);
+    res.status(202).json({ ok: true, queued });
   } catch (err) {
     next(err);
   }

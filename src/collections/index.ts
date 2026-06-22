@@ -7,7 +7,6 @@ import { RecurringPatterns } from './RecurringPatterns';
 import { ChatHistory } from './ChatHistory';
 import { AgentPendingActions } from './AgentPendingActions';
 import { UserAiSettings } from './UserAiSettings';
-import { VectorMemory } from './VectorMemory';
 import { Notifications } from './Notifications';
 import { AgentInsights } from './AgentInsights';
 
@@ -21,7 +20,6 @@ export {
   ChatHistory,
   AgentPendingActions,
   UserAiSettings,
-  VectorMemory,
   Notifications,
   AgentInsights,
 };

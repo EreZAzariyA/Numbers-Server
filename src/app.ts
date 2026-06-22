@@ -8,6 +8,7 @@ import config from "./utils/config";
 import { connectToMongoDB, connectRedis } from "./dal";
 import { errorsHandler, verifyToken, globalLimiter, authLimiter } from "./middlewares";
 import { initializeRedisBackedRateLimiters } from "./middlewares/rate-limiter";
+import { ensureCollection } from "./utils/qdrant-client";
 import healthRouter from './routes/health';
 import {
   authenticationRouter,
@@ -123,6 +124,7 @@ const bootstrap = async (): Promise<void> => {
 
     const collectionName = await connectToMongoDB();
     const redisAvailable = await connectRedis();
+    await ensureCollection(config.qdrantUrl);
     let workersEnabled = false;
 
     if (redisAvailable) {

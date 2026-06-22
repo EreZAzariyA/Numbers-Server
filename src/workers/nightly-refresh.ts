@@ -77,6 +77,46 @@ const processNightlyRefresh = async (_job: Job): Promise<void> => {
   }
 };
 
+export const triggerRefreshForUser = async (user_id: string): Promise<number> => {
+  const account = await Accounts.findOne({ user_id, banks: { $exists: true, $ne: [] } }).lean().exec();
+  if (!account) return 0;
+
+  const scrapingQueue = getScrapingQueue();
+  let queued = 0;
+
+  for (const bank of account.banks) {
+    if (!bank.credentials) continue;
+    try {
+      const decoded = decryptBankCredentials(bank.credentials);
+      if (!decoded) continue;
+      const jobData: ScrapingJobData = {
+        user_id: account.user_id.toString(),
+        bank_id: bank._id?.toString(),
+        companyId: decoded.companyId,
+        credentials: {
+          companyId: decoded.companyId,
+          id: decoded.id,
+          password: decoded.password,
+          num: decoded.num,
+          save: decoded.save,
+          username: decoded.username,
+        },
+        isRefresh: true,
+      };
+      await scrapingQueue.add('manual-refresh', jobData);
+      queued++;
+    } catch (err: any) {
+      config.log.warn({ user_id, bank_id: bank._id }, `Failed to queue manual refresh for bank: ${err.message}`);
+    }
+  }
+
+  if (config.enablePatternPersistence && queued > 0) {
+    await enqueuePatternRecompute(user_id).catch(() => {});
+  }
+
+  return queued;
+};
+
 export const scheduleNightlyRefresh = async (): Promise<Worker> => {
   const nightlyQueue = getNightlyQueue();
 

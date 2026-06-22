@@ -204,6 +204,7 @@ abstract class Config {
   public refreshTokenExpiresIn: number;
   public mongoConnectionString: string;
   public redisUrl: string;
+  public qdrantUrl: string;
   public secretKey: string;
   public googleClientId: string;
   public corsUrls: string[];
@@ -223,6 +224,7 @@ class DevelopmentConfig extends Config {
     this.refreshTokenExpiresIn = 7 * 24 * 60 * 60; // 7 days — outlives the 30h access token
     this.mongoConnectionString = process.env.MONGO_CONNECTION_STRING;
     this.redisUrl = process.env.REDIS_URL;
+    this.qdrantUrl = process.env.QDRANT_URL ?? 'http://localhost:6333';
     this.corsUrls = ['http://127.0.0.1:3000', 'http://localhost:3000', 'http://localhost:8080'];
     this.log = getLogger(name, version, getLogLevel(ENV_TYPE.DEVELOPMENT));
     this.secretKey = 'secret';
@@ -244,6 +246,7 @@ class ProductionConfig extends Config {
     this.refreshTokenExpiresIn = 7 * 24 * 60 * 60;
     this.mongoConnectionString = process.env.MONGO_CONNECTION_STRING;
     this.redisUrl = process.env.REDIS_URL;
+    this.qdrantUrl = process.env.QDRANT_URL ?? 'http://localhost:6333';
     this.corsUrls = ['http://localhost:3000', 'http://localhost:8080', 'https://ea-numbers.erezdev.com', 'https://ea-numbers.test.erezdev.com'];
     this.log = getLogger(name, version, getLogLevel(ENV_TYPE.PRODUCTION));
     this.secretKey = process.env.SECRET_KEY;

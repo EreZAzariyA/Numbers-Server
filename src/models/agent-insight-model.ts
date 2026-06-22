@@ -10,6 +10,7 @@ export type InsightType =
   | 'dashboard-digest';
 
 export type InsightSeverity = 'info' | 'warning' | 'critical';
+export type InsightLang = 'en' | 'he';
 
 export interface InsightFinding {
   severity: InsightSeverity;
@@ -22,6 +23,7 @@ export interface IAgentInsightModel extends Document {
   user_id: Types.ObjectId;
   type: InsightType;
   date: string;
+  language: InsightLang;
   findings: InsightFinding[];
   aiSummary?: string;
   generatedAt: Date;
@@ -50,6 +52,11 @@ export const AgentInsightSchema = new Schema<IAgentInsightModel>({
   },
   date: {
     type: String,
+    required: true,
+  },
+  language: {
+    type: String,
+    enum: ['en', 'he'],
     required: true,
   },
   findings: {
@@ -90,5 +97,4 @@ export const AgentInsightSchema = new Schema<IAgentInsightModel>({
   collection: 'agent_insights',
 });
 
-AgentInsightSchema.index({ user_id: 1, type: 1, date: -1 });
-AgentInsightSchema.index({ user_id: 1, type: 1, date: -1 }, { unique: true });
+AgentInsightSchema.index({ user_id: 1, type: 1, date: -1, language: 1 }, { unique: true });

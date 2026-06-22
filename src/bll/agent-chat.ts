@@ -269,7 +269,10 @@ If you cannot verify the answer from a tool result, say that you could not verif
 
       emitProgress('finalizing-response');
       await this.saveHistory(user_id, [...updatedHistory, { role: 'assistant', content: reply }]);
-      agentMemory.save(user_id, message, reply).catch(() => {});
+      agentMemory.save(user_id, message, reply).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err ?? '');
+        console.warn('Agent memory save failed:', msg);
+      });
       emitProgress('completed', undefined, 'complete');
       return { reply, pendingAction: stagedActionRef.value };
     } catch (err: unknown) {
@@ -459,6 +462,7 @@ If you cannot verify the answer from a tool result, say that you could not verif
     tools: AgentToolDefinition[],
   ): Promise<string> {
     const availableTools = strict ? tools.filter((t) => t.mode === 'read') : tools;
+    const availableToolNames = availableTools.map((t) => t.name).join(', ');
     const ctx: ProviderContext = {
       user_id,
       language,
@@ -466,7 +470,12 @@ If you cannot verify the answer from a tool result, say that you could not verif
       stagedActionRef,
       toolUsageRef,
       emitProgress,
-      executeTool: this.executeTool.bind(this),
+      executeTool: (name, args, execCtx) => {
+        if (!availableTools.find((t) => t.name === name)) {
+          return Promise.resolve({ error: `Tool "${name}" is not available in this context. Use one of: ${availableToolNames}` });
+        }
+        return this.executeTool(name, args, execCtx);
+      },
     };
 
     if (runtime.provider === 'ollama') {
@@ -505,7 +514,12 @@ If you cannot verify the answer from a tool result, say that you could not verif
       return this.stagePendingAction(definition, args, context);
     }
 
-    return definition.execute(args, context);
+    try {
+      return await definition.execute(args, context);
+    } catch (err) {
+      if (err instanceof Error) throw err;
+      return { error: 'Tool execution failed', details: String(err) };
+    }
   }
 
   private async stagePendingAction(

@@ -51,7 +51,12 @@ Return ONLY valid JSON with no explanation:
 
 Select the minimum number of agents required to answer the user's request accurately.
 Typical range: 1–3 agents. Prefer specialist agents over user_chat whenever financial data may help.
-The goal is not to maximize agents selected — select the smallest set necessary for the best answer.`;
+The goal is not to maximize agents selected — select the smallest set necessary for the best answer.
+
+Key disambiguation rules:
+- "investigate", "show me", "find", "how did I get to", "what is this charge" → reporting (transaction search)
+- "anything suspicious", "did something change", "detect" → risk_anomaly
+- "investigate" about a specific amount or merchant → reporting, NOT risk_anomaly`;
 }
 
 function extractFirstJson(raw: string): string | null {
