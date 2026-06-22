@@ -42,6 +42,7 @@ import { createMutationTools } from './agent/mutation-tools';
 import { createDigestTool } from './agent/digest-tool';
 import { getToolProgressLabel } from './agent/tool-labels';
 import agentMemory from './agent-memory';
+import { agentManager } from './agent-manager';
 import type { ProviderContext } from './agent/providers';
 import { chatWithOllama, chatWithClaude, chatWithGemini } from './agent/providers';
 import {
@@ -201,10 +202,24 @@ For the user's latest request, you must call at least one relevant read tool bef
 If you cannot verify the answer from a tool result, say that you could not verify it from live finance data and do not guess.`;
 
     try {
+      // Classify intent and compose agent-specific tools + system prompt segment
+      const classification = await agentManager.classify(message, normalizedLanguage, runtime);
+      const allTools = this.getToolDefinitions();
+      const canGroundData = allTools.some((t) => t.mode === 'read');
+      const composed = agentManager.compose(classification.agentIds, allTools);
+
+      // Build the final system instruction with the agent segment appended
+      const agentSystemInstruction = composed.systemPromptSegment
+        ? `${systemInstruction}\n\n---\n\n${composed.systemPromptSegment}`
+        : systemInstruction;
+      const agentStrictSystemInstruction = composed.systemPromptSegment
+        ? `${strictSystemInstruction}\n\n---\n\n${composed.systemPromptSegment}`
+        : strictSystemInstruction;
+
       emitProgress('consulting-assistant');
       let toolUsageRef = createToolUsageRef();
       let reply = await this.dispatchToProvider(
-        systemInstruction,
+        agentSystemInstruction,
         updatedHistory,
         user_id,
         normalizedLanguage,
@@ -213,13 +228,15 @@ If you cannot verify the answer from a tool result, say that you could not verif
         toolUsageRef,
         emitProgress,
         false,
+        composed.tools,
       );
 
-      if (shouldRequireGroundedData && !toolUsageRef.usedReadTool) {
+      const shouldRetryWithGrounding = shouldRequireGroundedData && !toolUsageRef.usedReadTool && canGroundData;
+      if (shouldRetryWithGrounding) {
         emitProgress('consulting-assistant');
         toolUsageRef = createToolUsageRef();
         reply = await this.dispatchToProvider(
-          strictSystemInstruction,
+          agentStrictSystemInstruction,
           updatedHistory,
           user_id,
           normalizedLanguage,
@@ -228,10 +245,11 @@ If you cannot verify the answer from a tool result, say that you could not verif
           toolUsageRef,
           emitProgress,
           true,
+          composed.tools,
         );
       }
 
-      if (shouldRequireGroundedData && !toolUsageRef.usedReadTool) {
+      if (shouldRequireGroundedData && canGroundData && !toolUsageRef.usedReadTool) {
         emitProgress('assistant-error', undefined, 'error');
         return {
           reply: localize(
@@ -424,8 +442,9 @@ If you cannot verify the answer from a tool result, say that you could not verif
     toolUsageRef: NonNullable<ToolExecutionContext['toolUsageRef']>,
     emitProgress: ToolExecutionContext['emitProgress'] | undefined,
     strict: boolean,
+    tools: AgentToolDefinition[],
   ): Promise<string> {
-    const availableTools = strict ? this.getReadOnlyToolDefinitions() : this.getToolDefinitions();
+    const availableTools = strict ? tools.filter((t) => t.mode === 'read') : tools;
     const ctx: ProviderContext = {
       user_id,
       language,
