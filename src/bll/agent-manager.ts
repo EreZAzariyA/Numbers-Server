@@ -54,11 +54,25 @@ Typical range: 1–3 agents. Prefer specialist agents over user_chat whenever fi
 The goal is not to maximize agents selected — select the smallest set necessary for the best answer.`;
 }
 
+function extractFirstJson(raw: string): string | null {
+  const start = raw.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < raw.length; i++) {
+    if (raw[i] === '{') depth++;
+    else if (raw[i] === '}') {
+      depth--;
+      if (depth === 0) return raw.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 function parseClassificationJson(raw: string): ClassificationResult | null {
   try {
-    const match = raw.match(/\{[\s\S]*\}/);
+    const match = extractFirstJson(raw);
     if (!match) return null;
-    const parsed = JSON.parse(match[0]) as { agents?: unknown; confidence?: unknown; reasoning?: unknown };
+    const parsed = JSON.parse(match) as { agents?: unknown; confidence?: unknown; reasoning?: unknown };
     if (!Array.isArray(parsed.agents) || parsed.agents.length === 0) return null;
     const validIds = parsed.agents.filter((id): id is AgentId => AGENT_REGISTRY.has(id as AgentId));
     if (validIds.length === 0) return null;
@@ -85,40 +99,48 @@ class AgentManager {
     language: SupportedLanguage,
     runtime: ProviderRuntime,
   ): Promise<ClassificationResult> {
+    if (!runtime.model) {
+      return { ...FALLBACK_RESULT, reasoning: 'No model configured for provider' };
+    }
+    if ((runtime.provider === 'claude' || runtime.provider === 'gemini') && !runtime.apiKey) {
+      return { ...FALLBACK_RESULT, reasoning: 'No API key configured for provider' };
+    }
+
     const systemPrompt = buildClassificationSystemPrompt();
     let raw: string | null = null;
 
     try {
       if (runtime.provider === 'ollama') {
-        raw = await this.classifyWithOllama(message, systemPrompt, runtime.model!);
+        raw = await this.classifyWithOllama(message, systemPrompt, runtime.model);
       } else if (runtime.provider === 'claude') {
         raw = await this.classifyWithClaude(message, systemPrompt, runtime);
       } else {
         raw = await this.classifyWithGemini(message, systemPrompt, runtime);
       }
     } catch {
-      return FALLBACK_RESULT;
+      return { ...FALLBACK_RESULT };
     }
 
-    if (!raw) return FALLBACK_RESULT;
+    if (!raw) return { ...FALLBACK_RESULT };
 
     const first = parseClassificationJson(raw);
     if (first) return first;
 
+    const correctedSystemPrompt = `${systemPrompt}\n\nIMPORTANT: Your previous response was not valid JSON. Return ONLY: { "agents": ["id"], "confidence": 0.8, "reasoning": "reason" }`;
+
     try {
-      const correctionPrompt = `Your previous response was not valid JSON. Return ONLY: { "agents": ["id"], "confidence": 0.8, "reasoning": "reason" }`;
       if (runtime.provider === 'ollama') {
-        raw = await this.classifyWithOllama(`${message}\n\n${correctionPrompt}`, systemPrompt, runtime.model!);
+        raw = await this.classifyWithOllama(message, correctedSystemPrompt, runtime.model);
       } else if (runtime.provider === 'claude') {
-        raw = await this.classifyWithClaude(`${message}\n\n${correctionPrompt}`, systemPrompt, runtime);
+        raw = await this.classifyWithClaude(message, correctedSystemPrompt, runtime);
       } else {
-        raw = await this.classifyWithGemini(`${message}\n\n${correctionPrompt}`, systemPrompt, runtime);
+        raw = await this.classifyWithGemini(message, correctedSystemPrompt, runtime);
       }
     } catch {
-      return FALLBACK_RESULT;
+      return { ...FALLBACK_RESULT };
     }
 
-    return parseClassificationJson(raw ?? '') ?? FALLBACK_RESULT;
+    return parseClassificationJson(raw ?? '') ?? { ...FALLBACK_RESULT };
   }
 
   private async classifyWithOllama(message: string, systemPrompt: string, model: string): Promise<string> {
@@ -130,7 +152,7 @@ class AgentManager {
         { role: 'user', content: message },
       ],
     });
-    return response.choices[0].message.content ?? '';
+    return response.choices[0]?.message.content ?? '';
   }
 
   private async classifyWithClaude(message: string, systemPrompt: string, runtime: ProviderRuntime): Promise<string> {
@@ -175,7 +197,7 @@ class AgentManager {
   getAgentName(id: AgentId, language: SupportedLanguage): string {
     const def = AGENT_REGISTRY.get(id);
     if (!def) return id;
-    return language === 'he' ? def.name.he : def.name.en;
+    return def.name[language] ?? def.name.en;
   }
 }
 
