@@ -1,9 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import type { EmbedContentRequest } from '@google/generative-ai';
 import { createOllamaClient } from './ollama-client';
 import type { EmbeddingProviderConfig } from '../bll/ai-settings';
-import type { VectorEmbeddingProvider } from '../collections/VectorMemory';
 
 const REQUIRED_DIMENSIONS = 768;
+
+export type VectorEmbeddingProvider = 'gemini' | 'ollama';
 
 export type EmbeddingResult = {
   embedding: number[];
@@ -11,10 +13,19 @@ export type EmbeddingResult = {
   model: string;
 };
 
+// gemini-embedding-001 defaults to 3072 dimensions. The SDK's EmbedContentRequest
+// type predates outputDimensionality, but the v1beta REST endpoint honors it and the
+// SDK forwards unknown fields verbatim. This extension keeps the call strictly typed.
+type GeminiEmbedRequest = EmbedContentRequest & { outputDimensionality?: number };
+
 const embedWithGemini = async (apiKey: string, model: string, text: string): Promise<number[]> => {
   const genAI = new GoogleGenerativeAI(apiKey);
   const embeddingModel = genAI.getGenerativeModel({ model });
-  const result = await embeddingModel.embedContent(text);
+  const request: GeminiEmbedRequest = {
+    content: { role: '', parts: [{ text }] },
+    outputDimensionality: REQUIRED_DIMENSIONS,
+  };
+  const result = await embeddingModel.embedContent(request);
   return result.embedding.values;
 };
 
@@ -34,6 +45,9 @@ export const embed = async (config: EmbeddingProviderConfig, text: string): Prom
   }
 
   if (embedding.length !== REQUIRED_DIMENSIONS) {
+    console.warn(
+      `Embedding discarded: ${config.provider}/${config.model} returned ${embedding.length} dimensions, expected ${REQUIRED_DIMENSIONS}.`,
+    );
     return null;
   }
 

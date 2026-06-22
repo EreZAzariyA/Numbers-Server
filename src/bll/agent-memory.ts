@@ -1,25 +1,18 @@
-import { VectorMemory } from '../collections/VectorMemory';
+import { randomUUID } from 'crypto';
 import aiSettingsLogic from './ai-settings';
 import { embed } from '../utils/embeddings';
 import appConfig from '../utils/config';
+import {
+  upsertPoint,
+  searchPoints,
+  countPoints,
+  scrollPoints,
+  deletePointsByIds,
+} from '../utils/qdrant-client';
 
-const IS_ATLAS = appConfig.mongoConnectionString?.startsWith('mongodb+srv://') ?? false;
-const ATLAS_VECTOR_INDEX = 'vector_index';
 const TOP_K = 5;
-const NUM_CANDIDATES = TOP_K * 10;
 const MAX_MEMORIES_PER_USER = 200;
 const MIN_RECALL_SCORE = 0.5;
-
-const cosineSimilarity = (a: number[], b: number[]): number => {
-  let dot = 0, magA = 0, magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(magA) * Math.sqrt(magB);
-  return denom === 0 ? 0 : dot / denom;
-};
 
 class AgentMemory {
   async save(user_id: string, userMessage: string, assistantReply: string): Promise<void> {
@@ -30,25 +23,37 @@ class AgentMemory {
     const result = await embed(embeddingConfig, content);
     if (!result) return;
 
-    await VectorMemory.create({
-      user_id,
-      content,
-      embedding: result.embedding,
-      embeddingProvider: result.provider,
-      embeddingModel: result.model,
-    });
+    const pointId = randomUUID();
+    const point = {
+      id: pointId,
+      vector: result.embedding,
+      payload: {
+        user_id,
+        content,
+        embeddingProvider: result.provider,
+        embeddingModel: result.model,
+        createdAt: Date.now(),
+      },
+    };
 
-    // Prune oldest entries beyond cap to prevent unbounded growth and slow in-memory scans.
-    const count = await VectorMemory.countDocuments({ user_id });
+    await upsertPoint(appConfig.qdrantUrl, point);
+
+    const userIdFilter = {
+      must: [{ key: 'user_id', match: { value: user_id } }],
+    };
+
+    const count = await countPoints(appConfig.qdrantUrl, userIdFilter);
     if (count > MAX_MEMORIES_PER_USER) {
-      const toDelete = await VectorMemory
-        .find({ user_id }, { _id: 1 })
-        .sort({ createdAt: 1 })
-        .limit(count - MAX_MEMORIES_PER_USER)
-        .lean()
-        .exec();
-      if (toDelete.length > 0) {
-        await VectorMemory.deleteMany({ _id: { $in: toDelete.map((d) => d._id) } });
+      const excess = await scrollPoints(
+        appConfig.qdrantUrl,
+        userIdFilter,
+        count - MAX_MEMORIES_PER_USER,
+        true,
+      );
+
+      if (excess.length > 0) {
+        const excessIds = excess.map((e) => e.id);
+        await deletePointsByIds(appConfig.qdrantUrl, excessIds);
       }
     }
   }
@@ -57,34 +62,42 @@ class AgentMemory {
     const embeddingConfig = await aiSettingsLogic.resolveEmbeddingProvider(user_id);
     if (!embeddingConfig) return;
 
-    const stale = await VectorMemory
-      .find(
-        {
-          user_id,
-          $or: [
-            { embeddingProvider: { $ne: embeddingConfig.provider } },
-            { embeddingModel: { $ne: embeddingConfig.model } },
-          ],
-        },
-        { _id: 1, content: 1 },
-      )
-      .lean()
-      .exec();
+    const userIdFilter = {
+      must: [{ key: 'user_id', match: { value: user_id } }],
+    };
 
-    for (const memory of stale) {
-      const result = await embed(embeddingConfig, memory.content);
-      if (!result) continue;
+    const allPoints = await scrollPoints(
+      appConfig.qdrantUrl,
+      userIdFilter,
+      MAX_MEMORIES_PER_USER,
+      false,
+    );
 
-      await VectorMemory.updateOne(
-        { _id: memory._id },
-        {
-          $set: {
-            embedding: result.embedding,
-            embeddingProvider: result.provider,
-            embeddingModel: result.model,
+    for (const point of allPoints) {
+      const payload = point.payload as Record<string, unknown>;
+      const currentProvider = payload.embeddingProvider as string;
+      const currentModel = payload.embeddingModel as string;
+
+      if (
+        currentProvider !== embeddingConfig.provider ||
+        currentModel !== embeddingConfig.model
+      ) {
+        const content = payload.content as string;
+        const newResult = await embed(embeddingConfig, content);
+        if (!newResult) continue;
+
+        const updatedPoint = {
+          id: point.id,
+          vector: newResult.embedding,
+          payload: {
+            ...payload,
+            embeddingProvider: newResult.provider,
+            embeddingModel: newResult.model,
           },
-        },
-      );
+        };
+
+        await upsertPoint(appConfig.qdrantUrl, updatedPoint);
+      }
     }
   }
 
@@ -97,36 +110,23 @@ class AgentMemory {
 
     const { embedding, provider, model } = result;
 
-    if (IS_ATLAS) {
-      const docs = await VectorMemory.aggregate([
-        {
-          $vectorSearch: {
-            index: ATLAS_VECTOR_INDEX,
-            path: 'embedding',
-            queryVector: embedding,
-            numCandidates: NUM_CANDIDATES,
-            limit: TOP_K,
-            filter: { user_id, embeddingProvider: provider, embeddingModel: model },
-          },
-        },
-        { $addFields: { score: { $meta: 'vectorSearchScore' } } },
-        { $match: { score: { $gte: MIN_RECALL_SCORE } } },
-        { $project: { content: 1, _id: 0 } },
-      ]);
-      return docs.map((d: { content: string }) => d.content);
-    }
+    const filter = {
+      must: [
+        { key: 'user_id', match: { value: user_id } },
+        { key: 'embeddingProvider', match: { value: provider } },
+        { key: 'embeddingModel', match: { value: model } },
+      ],
+    };
 
-    const memories = await VectorMemory
-      .find({ user_id, embeddingProvider: provider, embeddingModel: model }, { content: 1, embedding: 1 })
-      .lean()
-      .exec();
+    const searchResults = await searchPoints(
+      appConfig.qdrantUrl,
+      embedding,
+      filter,
+      TOP_K,
+      MIN_RECALL_SCORE,
+    );
 
-    return memories
-      .map((m) => ({ content: m.content, score: cosineSimilarity(embedding, m.embedding) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, TOP_K)
-      .filter((m) => m.score > MIN_RECALL_SCORE)
-      .map((m) => m.content);
+    return searchResults.map((r) => r.payload.content);
   }
 }
 

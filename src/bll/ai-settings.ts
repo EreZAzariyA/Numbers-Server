@@ -13,6 +13,12 @@ import {
 
 const OLLAMA_API_KEY = 'ollama';
 
+// Gemini's current GA embedding model. The legacy text-embedding-004 / embedding-001
+// models were deprecated and now return 404 on the v1beta embedContent endpoint.
+// gemini-embedding-001 defaults to 3072 dims; embeddings.ts requests 768 via
+// outputDimensionality to stay compatible with stored vectors and the Atlas index.
+const GEMINI_EMBEDDING_MODEL = 'gemini-embedding-001';
+
 export type EmbeddingProviderConfig =
   | { provider: 'gemini'; apiKey: string; model: string }
   | { provider: 'ollama'; model: string };
@@ -362,7 +368,7 @@ class AiSettingsLogic {
     // Gemini is preferred: fixed 768-dim output, no extra model setup required.
     const geminiKey = decryptAiSecret(doc?.geminiApiKey);
     if (geminiKey) {
-      return { provider: 'gemini', apiKey: geminiKey, model: 'text-embedding-004' };
+      return { provider: 'gemini', apiKey: geminiKey, model: GEMINI_EMBEDDING_MODEL };
     }
 
     // Ollama requires a dedicated embedding model (OLLAMA_EMBEDDING_MODEL env var,

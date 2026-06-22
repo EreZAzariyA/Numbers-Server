@@ -8,6 +8,7 @@ import config from "./utils/config";
 import { connectToMongoDB, connectRedis } from "./dal";
 import { errorsHandler, verifyToken, globalLimiter, authLimiter } from "./middlewares";
 import { initializeRedisBackedRateLimiters } from "./middlewares/rate-limiter";
+import { ensureCollection } from "./utils/qdrant-client";
 import healthRouter from './routes/health';
 import {
   authenticationRouter,
@@ -23,12 +24,14 @@ import {
   agentChatRouter,
   adminRouter,
   notificationsRouter,
+  agentInsightsRouter,
 } from './routes';
 import { startScrapingWorker } from './workers/scraping-worker';
 import { startTransactionImportWorker } from './workers/transaction-import-worker';
 import { startPatternRecomputeWorker } from './workers/pattern-recompute-worker';
 import { scheduleNightlyRefresh } from './workers/nightly-refresh';
 import { scheduleAlertsGeneration } from './workers/alerts-generation';
+import { scheduleProactiveAnalysis } from './workers/proactive-analysis';
 import { socketIo } from './dal/socket';
 import recurringOverridesRouter from './routes/recurring-overrides';
 import { getRuntimeSnapshot, setWorkersEnabled } from './utils/runtime-status';
@@ -64,6 +67,7 @@ app.use('/api/recurring', verifyToken, recurringOverridesRouter);
 app.use('/api/agent', verifyToken, agentChatRouter);
 app.use('/api/admin', verifyToken, adminRouter);
 app.use('/api/notifications', verifyToken, notificationsRouter);
+app.use('/api/agent-insights', verifyToken, agentInsightsRouter);
 
 if (config.isProduction) {
   const publicDir = path.join(__dirname, '../../public');
@@ -120,6 +124,10 @@ const bootstrap = async (): Promise<void> => {
 
     const collectionName = await connectToMongoDB();
     const redisAvailable = await connectRedis();
+    await ensureCollection(config.qdrantUrl).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err ?? '');
+      config.log.warn({ msg }, 'Qdrant unavailable at startup — agent memory disabled until Qdrant is reachable');
+    });
     let workersEnabled = false;
 
     if (redisAvailable) {
@@ -138,6 +146,11 @@ const bootstrap = async (): Promise<void> => {
         await scheduleAlertsGeneration();
       } else {
         config.log.info('Alert generation scheduling is disabled');
+      }
+      if (config.workers.proactiveAnalysisEnabled) {
+        await scheduleProactiveAnalysis();
+      } else {
+        config.log.info('Proactive analysis scheduling is disabled');
       }
       workersEnabled = true;
     }

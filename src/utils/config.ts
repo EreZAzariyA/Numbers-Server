@@ -28,6 +28,11 @@ type WorkerConfig = {
   patternRecomputeConcurrency: number;
   alertsGenerationEnabled: boolean;
   alertsGenerationCron: string;
+  proactiveAnalysisEnabled: boolean;
+  proactiveAnalysisDailyCron: string;
+  proactiveAnalysisWeeklyCron: string;
+  proactiveAnalysisIncomeCron: string;
+  proactiveAnalysisDigestCron: string;
 };
 
 type QueueConfig = {
@@ -109,6 +114,11 @@ const getRuntimeConfig = (defaults: RuntimeDefaults): RuntimeDefaults => ({
     patternRecomputeConcurrency: getEnvNumber('PATTERN_RECOMPUTE_WORKER_CONCURRENCY', defaults.workers.patternRecomputeConcurrency, 1),
     alertsGenerationEnabled: getEnvBoolean('ENABLE_ALERTS_GENERATION', defaults.workers.alertsGenerationEnabled),
     alertsGenerationCron: getEnvString('ALERTS_GENERATION_CRON', defaults.workers.alertsGenerationCron),
+    proactiveAnalysisEnabled: getEnvBoolean('ENABLE_PROACTIVE_ANALYSIS', defaults.workers.proactiveAnalysisEnabled),
+    proactiveAnalysisDailyCron: getEnvString('PROACTIVE_ANALYSIS_DAILY_CRON', defaults.workers.proactiveAnalysisDailyCron),
+    proactiveAnalysisWeeklyCron: getEnvString('PROACTIVE_ANALYSIS_WEEKLY_CRON', defaults.workers.proactiveAnalysisWeeklyCron),
+    proactiveAnalysisIncomeCron: getEnvString('PROACTIVE_ANALYSIS_INCOME_CRON', defaults.workers.proactiveAnalysisIncomeCron),
+    proactiveAnalysisDigestCron: getEnvString('PROACTIVE_ANALYSIS_DIGEST_CRON', defaults.workers.proactiveAnalysisDigestCron),
   },
   queue: {
     removeOnCompleteAgeSeconds: getEnvNumber('QUEUE_REMOVE_ON_COMPLETE_AGE_SECONDS', defaults.queue.removeOnCompleteAgeSeconds, 1),
@@ -138,6 +148,11 @@ const DEVELOPMENT_RUNTIME_DEFAULTS: RuntimeDefaults = {
     patternRecomputeConcurrency: 1,
     alertsGenerationEnabled: false,
     alertsGenerationCron: '0 5 * * *',
+    proactiveAnalysisEnabled: false,
+    proactiveAnalysisDailyCron: '0 6 * * *',
+    proactiveAnalysisWeeklyCron: '0 7 * * 1',
+    proactiveAnalysisIncomeCron: '0 8 1 * *',
+    proactiveAnalysisDigestCron: '0 8 * * *',
   },
   queue: {
     removeOnCompleteAgeSeconds: 3600,
@@ -167,6 +182,11 @@ const PRODUCTION_RUNTIME_DEFAULTS: RuntimeDefaults = {
     patternRecomputeConcurrency: 2,
     alertsGenerationEnabled: true,
     alertsGenerationCron: '0 5 * * *',
+    proactiveAnalysisEnabled: true,
+    proactiveAnalysisDailyCron: '0 6 * * *',
+    proactiveAnalysisWeeklyCron: '0 7 * * 1',
+    proactiveAnalysisIncomeCron: '0 8 1 * *',
+    proactiveAnalysisDigestCron: '0 8 * * *',
   },
   queue: {
     removeOnCompleteAgeSeconds: 3600,
@@ -184,6 +204,7 @@ abstract class Config {
   public refreshTokenExpiresIn: number;
   public mongoConnectionString: string;
   public redisUrl: string;
+  public qdrantUrl: string;
   public secretKey: string;
   public googleClientId: string;
   public corsUrls: string[];
@@ -203,6 +224,7 @@ class DevelopmentConfig extends Config {
     this.refreshTokenExpiresIn = 7 * 24 * 60 * 60; // 7 days — outlives the 30h access token
     this.mongoConnectionString = process.env.MONGO_CONNECTION_STRING;
     this.redisUrl = process.env.REDIS_URL;
+    this.qdrantUrl = process.env.QDRANT_URL ?? 'http://localhost:6333';
     this.corsUrls = ['http://127.0.0.1:3000', 'http://localhost:3000', 'http://localhost:8080'];
     this.log = getLogger(name, version, getLogLevel(ENV_TYPE.DEVELOPMENT));
     this.secretKey = 'secret';
@@ -224,6 +246,7 @@ class ProductionConfig extends Config {
     this.refreshTokenExpiresIn = 7 * 24 * 60 * 60;
     this.mongoConnectionString = process.env.MONGO_CONNECTION_STRING;
     this.redisUrl = process.env.REDIS_URL;
+    this.qdrantUrl = process.env.QDRANT_URL ?? 'http://localhost:6333';
     this.corsUrls = ['http://localhost:3000', 'http://localhost:8080', 'https://ea-numbers.erezdev.com', 'https://ea-numbers.test.erezdev.com'];
     this.log = getLogger(name, version, getLogLevel(ENV_TYPE.PRODUCTION));
     this.secretKey = process.env.SECRET_KEY;

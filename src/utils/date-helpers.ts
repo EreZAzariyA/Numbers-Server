@@ -27,7 +27,7 @@ export const toDateStr = (d: Date | string): string => {
 
 export const addDays = (dateStr: string, days: number): string => {
   const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
 
@@ -74,9 +74,10 @@ export type CycleBounds = { cycleStr: string; start: string; end: string };
 // in the previous calendar month.
 export const cycleBounds = (payDay: number, ref: Date = new Date()): CycleBounds => {
   const day = Math.min(Math.max(1, Math.floor(payDay)), 28);
-  const refYear = ref.getFullYear();
-  const refMonth = ref.getMonth();
-  const refDay = ref.getDate();
+  const refStr = formatDateInTimeZone(ref);
+  const refYear = Number(refStr.slice(0, 4));
+  const refMonth = Number(refStr.slice(5, 7)) - 1;
+  const refDay = Number(refStr.slice(8, 10));
 
   const cycleYear = refDay >= day ? refYear : (refMonth === 0 ? refYear - 1 : refYear);
   const cycleMonth = refDay >= day ? refMonth : (refMonth === 0 ? 11 : refMonth - 1);

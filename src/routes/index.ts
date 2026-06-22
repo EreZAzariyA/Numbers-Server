@@ -11,6 +11,7 @@ import cashFlowRouter from "./cash-flow";
 import agentChatRouter from "./agent-chat";
 import adminRouter from "./admin";
 import notificationsRouter from "./notifications";
+import agentInsightsRouter from "./agent-insights";
 
 export {
   authenticationRouter,
@@ -26,4 +27,5 @@ export {
   agentChatRouter,
   adminRouter,
   notificationsRouter,
+  agentInsightsRouter,
 };
