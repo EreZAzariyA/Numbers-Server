@@ -103,8 +103,8 @@ export type BudgetStatusItem = {
 // implements this structurally and is passed into the tool factories as `host`.
 export interface ToolHost {
   getDateRange(month?: number, year?: number): { start: string; end: string };
-  getBankTransactionsInRange(user_id: string, start: string, end: string): Promise<any[]>;
-  getCardTransactionsInRange(user_id: string, start: string, end: string): Promise<any[]>;
+  getBankTransactionsInRange(user_id: string, start: string, end: string): Promise<AgentTransactionRecord[]>;
+  getCardTransactionsInRange(user_id: string, start: string, end: string): Promise<AgentTransactionRecord[]>;
   getUnifiedExpenseEntries(user_id: string, start: string, end: string): Promise<UnifiedExpenseEntry[]>;
   resolveCategory(user_id: string, options: { category_id?: string; category_name?: string }): Promise<ICategoryModel>;
   resolveTransaction(
@@ -115,7 +115,7 @@ export interface ToolHost {
   getSavingsGoalById(user_id: string, goalId: string): Promise<ISavingsGoalModel>;
   searchTransactionsForAgent(
     user_id: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
   ): Promise<{
     totalMatches: number;
     transactions: Array<Record<string, unknown>>;
@@ -125,6 +125,6 @@ export interface ToolHost {
   getTransactionLabel(type: TransactionCollectionType): AgentTransactionLabel;
   getAccountOverviewForAgent(user_id: string): Promise<Record<string, unknown>>;
   getCreditCardSnapshotForAgent(user_id: string): Promise<Record<string, unknown>>;
-  detectSubscriptionPriceChangesForAgent(user_id: string, args: Record<string, any>): Promise<Record<string, unknown>>;
+  detectSubscriptionPriceChangesForAgent(user_id: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
   buildMonthlyRiskLevel(projectedMonthNet: number, referenceAmount: number): 'low' | 'medium' | 'high';
 }

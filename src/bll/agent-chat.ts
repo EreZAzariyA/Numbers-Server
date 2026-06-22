@@ -1,20 +1,14 @@
-import { Content, GoogleGenerativeAI } from '@google/generative-ai';
-import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
 import { UserModel } from '../models/user-model';
 import { cycleBounds } from '../utils/date-helpers';
-import {
-  AgentPendingActions,
-  ChatHistory,
-} from '../collections';
+import { ChatHistory } from '../collections';
 import type { IAgentPendingActionCollection, PendingAgentActionStatus } from '../collections/AgentPendingActions';
+import { AgentPendingActions } from '../collections';
 import { ClientError } from '../models';
 import type { ICategoryModel } from '../models';
 import type { ISavingsGoalModel } from '../models/savings-goal-model';
 import { socketIo } from '../dal/socket';
 import type { MainTransactionType } from '../utils/types';
 import { getAiRateLimitMessage } from '../utils/ai-provider';
-import { createOllamaClient } from '../utils/ollama-client';
 import aiSettingsLogic from './ai-settings';
 import {
   AgentToolDefinition,
@@ -26,7 +20,6 @@ import {
   AgentTransactionLabel,
   UnifiedExpenseEntry,
 } from './agent/tool-types';
-import { toGeminiSchema, toOpenAISchema } from './agent/tool-schema';
 import { localize } from './agent/tool-helpers';
 import {
   normalizeTransactionType,
@@ -49,6 +42,18 @@ import { createMutationTools } from './agent/mutation-tools';
 import { createDigestTool } from './agent/digest-tool';
 import { getToolProgressLabel } from './agent/tool-labels';
 import agentMemory from './agent-memory';
+import type { ProviderContext } from './agent/providers';
+import { chatWithOllama, chatWithClaude, chatWithGemini } from './agent/providers';
+import {
+  stagePendingAction,
+  loadLatestPendingAction,
+  loadPendingActionOrThrow,
+  expireStalePendingActions,
+  cancelAllPendingActions,
+  toPendingActionView,
+  buildDefaultArgsPreview,
+  buildInactiveActionMessage,
+} from './agent/pending-actions';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -62,7 +67,6 @@ type HistoryResponse = {
   pendingAction?: PendingActionView | null;
 };
 
-
 type AgentProgressEvent = {
   requestId: string;
   step: string;
@@ -72,12 +76,7 @@ type AgentProgressEvent = {
   tool?: string;
 };
 
-
-
 const MAX_HISTORY_MESSAGES = 20;
-const MAX_TOOL_ROUNDS = 5;
-const PENDING_ACTION_TTL_MS = 1000 * 60 * 10;
-
 
 const toProgressStepId = (value: string): string =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -418,7 +417,7 @@ If you cannot verify the answer from a tool result, say that you could not verif
     return getTransactionLabel(type);
   }
 
-  private dispatchToProvider(
+  private async dispatchToProvider(
     systemInstruction: string,
     messages: ChatMessage[],
     user_id: string,
@@ -429,280 +428,35 @@ If you cannot verify the answer from a tool result, say that you could not verif
     emitProgress: ToolExecutionContext['emitProgress'] | undefined,
     strict: boolean,
   ): Promise<string> {
-    if (runtime.provider === 'ollama') {
-      return this.chatWithOllama(
-        systemInstruction,
-        messages,
-        user_id,
-        language,
-        stagedActionRef,
-        runtime.model!,
-        toolUsageRef,
-        emitProgress,
-        strict,
-        runtime.thinking,
-      );
-    }
-
-    if (runtime.provider === 'claude') {
-      return this.chatWithClaude(
-        systemInstruction,
-        messages,
-        user_id,
-        language,
-        stagedActionRef,
-        runtime,
-        toolUsageRef,
-        emitProgress,
-        strict,
-      );
-    }
-
-    return this.chatWithGemini(
-      systemInstruction,
-      messages,
+    const availableTools = strict ? this.getReadOnlyToolDefinitions() : this.getToolDefinitions();
+    const ctx: ProviderContext = {
       user_id,
       language,
+      tools: availableTools,
       stagedActionRef,
-      runtime,
       toolUsageRef,
       emitProgress,
-      strict,
-    );
-  }
+      executeTool: this.executeTool.bind(this),
+    };
 
-  private async chatWithGemini(
-    systemInstruction: string,
-    messages: ChatMessage[],
-    user_id: string,
-    language: SupportedLanguage,
-    stagedActionRef: { value: PendingActionView | null },
-    runtime: Awaited<ReturnType<typeof aiSettingsLogic.resolveProvider>>,
-    toolUsageRef: NonNullable<ToolExecutionContext['toolUsageRef']>,
-    emitProgress?: ToolExecutionContext['emitProgress'],
-    readOnlyToolsOnly = false,
-  ): Promise<string> {
-    const availableTools = readOnlyToolsOnly ? this.getReadOnlyToolDefinitions() : this.getToolDefinitions();
-    const genAI = new GoogleGenerativeAI(runtime.apiKey!);
-    const model = genAI.getGenerativeModel({
-      model: runtime.model!,
-      systemInstruction,
-      tools: [{ functionDeclarations: this.getGeminiTools(availableTools) }],
-    });
-
-    const history: Content[] = messages.slice(0, -1).map((message) => ({
-      role: message.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: message.content }],
-    }));
-
-    const chat = model.startChat({ history });
-    const lastMessage = messages[messages.length - 1].content;
-    let result = await chat.sendMessage(lastMessage);
-
-    for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
-      const parts = result.response.candidates?.[0]?.content?.parts ?? [];
-      const functionCallPart = parts.find((part) => part.functionCall);
-      if (!functionCallPart?.functionCall) break;
-
-      const { name, args } = functionCallPart.functionCall;
-      const toolResult = await this.executeTool(name, (args ?? {}) as Record<string, any>, {
-        user_id,
-        language,
-        stageMutations: true,
-        stagedActionRef,
-        toolUsageRef,
-        emitProgress,
-      });
-
-      emitProgress?.('analyzing-results');
-      result = await chat.sendMessage([{
-        functionResponse: {
-          name,
-          response: { result: JSON.stringify(toolResult) },
-        },
-      }]);
+    if (runtime.provider === 'ollama') {
+      return chatWithOllama(systemInstruction, messages, runtime.model!, runtime.thinking ?? false, strict, ctx);
     }
-
-    return result.response.text();
-  }
-
-  private async chatWithOllama(
-    systemInstruction: string,
-    messages: ChatMessage[],
-    user_id: string,
-    language: SupportedLanguage,
-    stagedActionRef: { value: PendingActionView | null },
-    model: string,
-    toolUsageRef: NonNullable<ToolExecutionContext['toolUsageRef']>,
-    emitProgress?: ToolExecutionContext['emitProgress'],
-    forceToolUse = false,
-    thinkingEnabled = true,
-  ): Promise<string> {
-    const client = createOllamaClient();
-
-    // Reasoning models (e.g. Qwen3) emit a long hidden chain-of-thought before
-    // answering. The `/no_think` directive disables it for much lower latency.
-    const effectiveSystemInstruction = thinkingEnabled ? systemInstruction : `/no_think\n${systemInstruction}`;
-
-    const history: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: 'system', content: effectiveSystemInstruction },
-      ...messages.map((message) => ({
-        role: (message.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user',
-        content: message.content,
-      })),
-    ];
-
-    const availableTools = forceToolUse ? this.getReadOnlyToolDefinitions() : this.getToolDefinitions();
-    const openAiTools = this.getOpenAITools(availableTools);
-    const send = (extra: Partial<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming> = {}) =>
-      client.chat.completions.create({
-        model,
-        messages: history,
-        tools: openAiTools,
-        ...extra,
-      });
-
-    let response = await send(forceToolUse ? { tool_choice: 'required' } : {});
-
-    for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
-      const choice = response.choices[0];
-      if (choice.finish_reason !== 'tool_calls' || !choice.message.tool_calls?.length) break;
-
-      history.push(choice.message);
-
-      for (const call of choice.message.tool_calls) {
-        if (call.type !== 'function') continue;
-        const parsedArguments = call.function.arguments ? JSON.parse(call.function.arguments) : {};
-        const result = await this.executeTool(call.function.name, parsedArguments, {
-          user_id,
-          language,
-          stageMutations: true,
-          stagedActionRef,
-          toolUsageRef,
-          emitProgress,
-        });
-
-        history.push({
-          role: 'tool',
-          tool_call_id: call.id,
-          content: JSON.stringify(result),
-        });
-      }
-
-      emitProgress?.('analyzing-results');
-      response = await send();
+    if (runtime.provider === 'claude') {
+      return chatWithClaude(systemInstruction, messages, runtime, strict, ctx);
     }
-
-    return response.choices[0].message.content ?? '';
-  }
-
-  private async chatWithClaude(
-    systemInstruction: string,
-    messages: ChatMessage[],
-    user_id: string,
-    language: SupportedLanguage,
-    stagedActionRef: { value: PendingActionView | null },
-    runtime: Awaited<ReturnType<typeof aiSettingsLogic.resolveProvider>>,
-    toolUsageRef: NonNullable<ToolExecutionContext['toolUsageRef']>,
-    emitProgress?: ToolExecutionContext['emitProgress'],
-    readOnlyToolsOnly = false,
-  ): Promise<string> {
-    const availableTools = readOnlyToolsOnly ? this.getReadOnlyToolDefinitions() : this.getToolDefinitions();
-    const client = new Anthropic({ apiKey: runtime.apiKey! });
-    const history: any[] = messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    }));
-    const tools = this.getAnthropicTools(availableTools);
-    const send = () => client.messages.create({
-      model: runtime.model!,
-      max_tokens: 1200,
-      system: systemInstruction,
-      messages: history,
-      tools,
-    });
-
-    let response = await send();
-
-    for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
-      const toolUses = response.content.filter((block: any) => block.type === 'tool_use');
-      if (!toolUses.length) break;
-
-      history.push({
-        role: 'assistant',
-        content: response.content,
-      });
-
-      const toolResults = [];
-      for (const toolUse of toolUses as any[]) {
-        const result = await this.executeTool(toolUse.name, (toolUse.input ?? {}) as Record<string, any>, {
-          user_id,
-          language,
-          stageMutations: true,
-          stagedActionRef,
-          toolUsageRef,
-          emitProgress,
-        });
-
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: JSON.stringify(result),
-        });
-      }
-
-      history.push({
-        role: 'user',
-        content: toolResults,
-      });
-
-      emitProgress?.('analyzing-results');
-      response = await send();
-    }
-
-    return response.content
-      .filter((block: any) => block.type === 'text')
-      .map((block: any) => block.text)
-      .join('\n')
-      .trim();
+    return chatWithGemini(systemInstruction, messages, runtime, strict, ctx);
   }
 
   private getToolDefinition(name: string): AgentToolDefinition | undefined {
     return this.getToolDefinitions().find((definition) => definition.name === name);
   }
 
-  private getGeminiTools(definitions: AgentToolDefinition[] = this.getToolDefinitions()): any[] {
-    return definitions.map((definition) => ({
-      name: definition.name,
-      description: definition.description,
-      parameters: toGeminiSchema(definition.schema),
-    }));
-  }
-
-  private getOpenAITools(definitions: AgentToolDefinition[] = this.getToolDefinitions()): OpenAI.Chat.ChatCompletionTool[] {
-    return definitions.map((definition) => ({
-      type: 'function',
-      function: {
-        name: definition.name,
-        description: definition.description,
-        parameters: toOpenAISchema(definition.schema),
-      },
-    }));
-  }
-
-  private getAnthropicTools(definitions: AgentToolDefinition[] = this.getToolDefinitions()): any[] {
-    return definitions.map((definition) => ({
-      name: definition.name,
-      description: definition.description,
-      input_schema: toOpenAISchema(definition.schema),
-    }));
-  }
-
   private async executeTool(
     name: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
     context: ToolExecutionContext,
-  ): Promise<any> {
+  ): Promise<unknown> {
     const definition = this.getToolDefinition(name);
     if (!definition) {
       return { error: `Unknown tool: ${name}` };
@@ -726,112 +480,46 @@ If you cannot verify the answer from a tool result, say that you could not verif
 
   private async stagePendingAction(
     definition: AgentToolDefinition,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
     context: ToolExecutionContext,
-  ): Promise<any> {
-    if (context.stagedActionRef.value) {
-      return {
-        error: 'An action is already waiting for confirmation. Ask the user to confirm or cancel it first.',
-      };
-    }
-
-    await this.expireStalePendingActions(context.user_id);
-    await this.cancelAllPendingActions(context.user_id);
-
-    const expiresAt = new Date(Date.now() + PENDING_ACTION_TTL_MS);
-    const preview = definition.argsPreview ? definition.argsPreview(args) : this.buildDefaultArgsPreview(args);
-    const doc = await AgentPendingActions.create({
-      user_id: context.user_id,
-      tool: definition.name,
-      summary: definition.summarize(args),
-      args,
-      argsPreview: preview,
-      status: 'pending',
-      expiresAt,
-    });
-
-    const pendingAction = this.toPendingActionView(doc);
-    context.stagedActionRef.value = pendingAction;
-    context.emitProgress?.('staging-action', definition.name);
-
-    return {
-      requires_confirmation: true,
-      pending_action: pendingAction,
-      message: 'The action has been staged and now requires confirmation in the chat UI.',
-    };
+  ): Promise<unknown> {
+    return stagePendingAction(definition, args, context);
   }
 
   private async loadLatestPendingAction(user_id: string): Promise<PendingActionView | null> {
-    await this.expireStalePendingActions(user_id);
-    const doc = await AgentPendingActions.findOne({ user_id, status: 'pending' })
-      .sort({ createdAt: -1 })
-      .exec();
-
-    return doc ? this.toPendingActionView(doc) : null;
+    return loadLatestPendingAction(user_id);
   }
 
   private async loadPendingActionOrThrow(
     user_id: string,
     actionId: string,
   ): Promise<IAgentPendingActionCollection> {
-    await this.expireStalePendingActions(user_id);
-    const action = await AgentPendingActions.findOne({ _id: actionId, user_id }).exec();
-    if (!action) {
-      throw new ClientError(404, 'Pending action not found.');
-    }
-    return action;
+    return loadPendingActionOrThrow(user_id, actionId);
   }
 
   private async expireStalePendingActions(user_id?: string): Promise<void> {
-    const now = new Date();
-    const query: Record<string, any> = {
-      status: 'pending',
-      expiresAt: { $lte: now },
-    };
-    if (user_id) query.user_id = user_id;
-
-    await AgentPendingActions.updateMany(query, {
-      $set: { status: 'expired', expiredAt: now },
-    }).exec();
+    return expireStalePendingActions(user_id);
   }
 
   private async cancelAllPendingActions(user_id: string): Promise<void> {
-    await AgentPendingActions.updateMany({ user_id, status: 'pending' }, {
-      $set: { status: 'cancelled', cancelledAt: new Date() },
-    }).exec();
+    return cancelAllPendingActions(user_id);
   }
 
   private toPendingActionView(
     action: Pick<IAgentPendingActionCollection, '_id' | 'tool' | 'summary' | 'argsPreview' | 'expiresAt'>,
   ): PendingActionView {
-    return {
-      id: action._id.toString(),
-      tool: action.tool,
-      summary: action.summary,
-      argsPreview: action.argsPreview ?? {},
-      expiresAt: action.expiresAt.toISOString(),
-    };
+    return toPendingActionView(action);
   }
 
-  private buildDefaultArgsPreview(args: Record<string, any>): Record<string, unknown> {
-    return Object.fromEntries(
-      Object.entries(args).map(([key, value]) => [
-        key,
-        Array.isArray(value) ? value.slice(0, 5) : value,
-      ]),
-    );
+  private buildDefaultArgsPreview(args: Record<string, unknown>): Record<string, unknown> {
+    return buildDefaultArgsPreview(args);
   }
 
-  private buildInactiveActionMessage(status: PendingAgentActionStatus, language: SupportedLanguage): string {
-    switch (status) {
-      case 'confirmed':
-        return localize(language, 'That action was already confirmed.', 'הפעולה הזו כבר אושרה.');
-      case 'cancelled':
-        return localize(language, 'That action was already cancelled.', 'הפעולה הזו כבר בוטלה.');
-      case 'expired':
-      default:
-        return localize(language, 'That action has expired. Please ask again.', 'הפעולה הזו פגה. בקש שוב.');
-    }
+  private buildInactiveActionMessage(
+    status: PendingAgentActionStatus,
+    language: SupportedLanguage,
+  ): string {
+    return buildInactiveActionMessage(status, language);
   }
 
   public getDateRange(month?: number, year?: number): { start: string; end: string } {
@@ -871,7 +559,7 @@ If you cannot verify the answer from a tool result, say that you could not verif
 
   public async searchTransactionsForAgent(
     user_id: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
   ): Promise<{
     totalMatches: number;
     transactions: Array<Record<string, unknown>>;
@@ -890,7 +578,7 @@ If you cannot verify the answer from a tool result, say that you could not verif
 
   public async detectSubscriptionPriceChangesForAgent(
     user_id: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     return detectSubscriptionPriceChangesForAgent(user_id, args);
   }
