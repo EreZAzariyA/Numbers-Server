@@ -9,6 +9,8 @@ import { buildSettlementTreatmentMap } from '../../utils/settlement-detection';
 import { getTransactionAmount, getTransactionTextSource, getEventDate } from '../../utils/transaction-semantics';
 import { normalize } from '../recurring/normalization';
 import { toDateStr, addDays, monthBounds } from '../../utils/date-helpers';
+import type { InsightLang } from '../../models/agent-insight-model';
+import { i18n } from './insight-i18n';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -89,7 +91,7 @@ export async function runDailyExpenseReview(user_id: string): Promise<void> {
 
   try {
     const historyEnd = addDays(yesterdayStr, -1);
-    const historyStart = addDays(historyEnd, -29); // 30 days ending day-before-yesterday
+    const historyStart = addDays(historyEnd, -29);
 
     const [yesterdayTxns, historyTxns] = await Promise.all([
       fetchAllTxns(user_id, yesterdayStr, yesterdayStr),
@@ -99,47 +101,63 @@ export async function runDailyExpenseReview(user_id: string): Promise<void> {
     const yesterdayTotal = sumExpenses(yesterdayTxns);
     const historyTotal = sumExpenses(historyTxns);
     const dailyAverage = historyTotal / 30;
-
-    const findings: InsightFinding[] = [];
-
-    findings.push({
-      severity: 'info',
-      title: 'Daily spending summary',
-      body: `Spent ₪${fmt(yesterdayTotal)} yesterday (30-day daily average: ₪${fmt(dailyAverage)}).`,
-    });
-
-    if (yesterdayTotal > HIGH_SPEND_RATIO * dailyAverage && yesterdayTotal > HIGH_SPEND_MIN_TOTAL) {
-      const overPct = dailyAverage > 0
+    const isHighSpend =
+      yesterdayTotal > HIGH_SPEND_RATIO * dailyAverage &&
+      yesterdayTotal > HIGH_SPEND_MIN_TOTAL;
+    const overPct =
+      isHighSpend && dailyAverage > 0
         ? Math.round(((yesterdayTotal - dailyAverage) / dailyAverage) * 100)
         : 0;
-      findings.push({
-        severity: 'warning',
-        title: 'Higher than usual day',
-        body: `Yesterday's spend was ${overPct}% above your daily average.`,
-      });
-    }
+    const largeTxns = yesterdayTxns.filter(
+      (t) => Math.abs(getTransactionAmount(t)) >= LARGE_TXN_THRESHOLD,
+    );
 
-    for (const t of yesterdayTxns) {
-      const amount = getTransactionAmount(t);
-      if (Math.abs(amount) >= LARGE_TXN_THRESHOLD) {
-        const description = getTransactionTextSource(t);
+    const buildFindings = (lang: InsightLang): InsightFinding[] => {
+      const t = i18n[lang];
+      const findings: InsightFinding[] = [];
+      findings.push({
+        severity: 'info',
+        title: t.dailySpendingTitle,
+        body: t.dailySpendingBody(fmt(yesterdayTotal), fmt(dailyAverage)),
+      });
+      if (isHighSpend) {
+        findings.push({
+          severity: 'warning',
+          title: t.higherThanUsualTitle,
+          body: t.higherThanUsualBody(String(overPct)),
+        });
+      }
+      for (const txn of largeTxns) {
+        const description = getTransactionTextSource(txn);
+        const amount = getTransactionAmount(txn);
         findings.push({
           severity: 'info',
-          title: 'Large transaction',
+          title: t.largeTxnTitle,
           body: `${description}: ₪${fmt(Math.abs(amount))}`,
           meta: { description, amount },
         });
       }
-    }
+      return findings;
+    };
 
-    await agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, findings);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, buildFindings('en'), undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, buildFindings('he'), undefined, 'he'),
+    ]);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    await agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, [{
-      severity: 'warning',
-      title: 'Analysis unavailable',
-      body: `Daily expense review could not complete: ${msg}`,
-    }]);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, [{
+        severity: 'warning',
+        title: i18n.en.analysisUnavailableTitle,
+        body: i18n.en.dailyUnavailableBody(msg),
+      }], undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'daily-expense-review', yesterdayStr, [{
+        severity: 'warning',
+        title: i18n.he.analysisUnavailableTitle,
+        body: i18n.he.dailyUnavailableBody(msg),
+      }], undefined, 'he'),
+    ]);
   }
 }
 
@@ -151,9 +169,9 @@ export async function runWeeklySummary(user_id: string): Promise<void> {
   const todayStr = toDateStr(new Date());
 
   try {
-    const thisWeekStart = addDays(todayStr, -6);  // last 7 days ending today
-    const lastWeekEnd = addDays(todayStr, -7);    // day before this week started
-    const lastWeekStart = addDays(todayStr, -13); // 7 days ending lastWeekEnd
+    const thisWeekStart = addDays(todayStr, -6);
+    const lastWeekEnd = addDays(todayStr, -7);
+    const lastWeekStart = addDays(todayStr, -13);
 
     const [thisWeekTxns, lastWeekTxns] = await Promise.all([
       fetchAllTxns(user_id, thisWeekStart, todayStr),
@@ -163,8 +181,6 @@ export async function runWeeklySummary(user_id: string): Promise<void> {
     const thisWeekTotal = sumExpenses(thisWeekTxns);
     const lastWeekTotal = sumExpenses(lastWeekTxns);
 
-    const findings: InsightFinding[] = [];
-
     let deltaLabel = '0%';
     let deltaNum = 0;
     if (lastWeekTotal > 0) {
@@ -172,35 +188,51 @@ export async function runWeeklySummary(user_id: string): Promise<void> {
       const sign = deltaNum >= 0 ? '+' : '-';
       deltaLabel = `${sign}${pct(deltaNum)}%`;
     }
+    const isUp = deltaNum > WEEKLY_CHANGE_THRESHOLD_PCT;
+    const isDown = deltaNum < -WEEKLY_CHANGE_THRESHOLD_PCT;
 
-    findings.push({
-      severity: 'info',
-      title: 'Weekly spending',
-      body: `This week: ₪${fmt(thisWeekTotal)} vs last week: ₪${fmt(lastWeekTotal)} (${deltaLabel}).`,
-    });
-
-    if (deltaNum > WEEKLY_CHANGE_THRESHOLD_PCT) {
-      findings.push({
-        severity: 'warning',
-        title: 'Spending up this week',
-        body: `This week's spending is ${pct(deltaNum)}% higher than last week (₪${fmt(thisWeekTotal)} vs ₪${fmt(lastWeekTotal)}).`,
-      });
-    } else if (deltaNum < -WEEKLY_CHANGE_THRESHOLD_PCT) {
+    const buildFindings = (lang: InsightLang): InsightFinding[] => {
+      const t = i18n[lang];
+      const findings: InsightFinding[] = [];
       findings.push({
         severity: 'info',
-        title: 'Spending down this week',
-        body: `This week's spending is ${pct(deltaNum)}% lower than last week (₪${fmt(thisWeekTotal)} vs ₪${fmt(lastWeekTotal)}).`,
+        title: t.weeklySpendingTitle,
+        body: t.weeklySpendingBody(fmt(thisWeekTotal), fmt(lastWeekTotal), deltaLabel),
       });
-    }
+      if (isUp) {
+        findings.push({
+          severity: 'warning',
+          title: t.spendingUpTitle,
+          body: t.spendingUpBody(pct(deltaNum), fmt(thisWeekTotal), fmt(lastWeekTotal)),
+        });
+      } else if (isDown) {
+        findings.push({
+          severity: 'info',
+          title: t.spendingDownTitle,
+          body: t.spendingDownBody(pct(deltaNum), fmt(thisWeekTotal), fmt(lastWeekTotal)),
+        });
+      }
+      return findings;
+    };
 
-    await agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, findings);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, buildFindings('en'), undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, buildFindings('he'), undefined, 'he'),
+    ]);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    await agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, [{
-      severity: 'warning',
-      title: 'Analysis unavailable',
-      body: `Weekly summary could not complete: ${msg}`,
-    }]);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, [{
+        severity: 'warning',
+        title: i18n.en.analysisUnavailableTitle,
+        body: i18n.en.weeklyUnavailableBody(msg),
+      }], undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'weekly-summary', todayStr, [{
+        severity: 'warning',
+        title: i18n.he.analysisUnavailableTitle,
+        body: i18n.he.weeklyUnavailableBody(msg),
+      }], undefined, 'he'),
+    ]);
   }
 }
 
@@ -214,38 +246,54 @@ export async function runMonthEndRisk(user_id: string): Promise<void> {
   try {
     const projection = await calculateCashFlowProjection(user_id);
     const { riskLevel, projectedEndBalance } = projection;
+    const balanceStr =
+      projectedEndBalance !== null ? `₪${fmt(projectedEndBalance)}` : 'unknown';
+    const isHigh =
+      riskLevel === 'high' ||
+      (projectedEndBalance !== null && projectedEndBalance < 0);
+    const isMedium = !isHigh && riskLevel === 'medium';
 
-    const balanceStr = projectedEndBalance !== null ? `₪${fmt(projectedEndBalance)}` : 'unknown';
-    const findings: InsightFinding[] = [];
-
-    if (riskLevel === 'high' || (projectedEndBalance !== null && projectedEndBalance < 0)) {
-      findings.push({
-        severity: 'critical',
-        title: 'Cash flow risk',
-        body: `Projected month-end balance: ${balanceStr}. Risk level: high.`,
-      });
-    } else if (riskLevel === 'medium') {
-      findings.push({
-        severity: 'warning',
-        title: 'Month-end under pressure',
-        body: `Projected balance: ${balanceStr}. Watch spending this week.`,
-      });
-    } else {
-      findings.push({
+    const buildFindings = (lang: InsightLang): InsightFinding[] => {
+      const t = i18n[lang];
+      if (isHigh) {
+        return [{
+          severity: 'critical',
+          title: t.cashFlowRiskTitle,
+          body: t.cashFlowRiskBody(balanceStr),
+        }];
+      }
+      if (isMedium) {
+        return [{
+          severity: 'warning',
+          title: t.monthUnderPressureTitle,
+          body: t.monthUnderPressureBody(balanceStr),
+        }];
+      }
+      return [{
         severity: 'info',
-        title: 'Month on track',
-        body: `Projected month-end balance: ${balanceStr}.`,
-      });
-    }
+        title: t.monthOnTrackTitle,
+        body: t.monthOnTrackBody(balanceStr),
+      }];
+    };
 
-    await agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, findings);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, buildFindings('en'), undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, buildFindings('he'), undefined, 'he'),
+    ]);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    await agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, [{
-      severity: 'warning',
-      title: 'Analysis unavailable',
-      body: `Month-end risk analysis could not complete: ${msg}`,
-    }]);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, [{
+        severity: 'warning',
+        title: i18n.en.analysisUnavailableTitle,
+        body: i18n.en.monthRiskUnavailableBody(msg),
+      }], undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'month-end-risk', todayStr, [{
+        severity: 'warning',
+        title: i18n.he.analysisUnavailableTitle,
+        body: i18n.he.monthRiskUnavailableBody(msg),
+      }], undefined, 'he'),
+    ]);
   }
 }
 
@@ -257,15 +305,32 @@ export async function runSubscriptionWatch(user_id: string): Promise<void> {
   const todayStr = toDateStr(new Date());
 
   try {
-    let subFindings: InsightFinding[] = [];
+    type PriceIncreaseRaw = {
+      name: string;
+      current: string;
+      previous: string;
+      changePct: string;
+      meta: Record<string, unknown>;
+    };
+    type RenewalRaw = {
+      description: string;
+      amount: string;
+      date: string;
+      days: number;
+      meta: Record<string, unknown>;
+    };
+
+    let priceIncreases: PriceIncreaseRaw[] = [];
+    let subDataError: string | null = null;
     try {
       const { subscriptions } = await getSubscriptions(user_id);
       for (const sub of subscriptions) {
         if (sub.priceChangePct !== null && sub.priceChangePct >= PRICE_INCREASE_THRESHOLD_PCT) {
-          subFindings.push({
-            severity: 'warning',
-            title: `Price increase: ${sub.name}`,
-            body: `Now ₪${fmt(sub.currentAmount)} (was ₪${fmt(sub.previousAmount ?? 0)}, +${Math.round(sub.priceChangePct)}%).`,
+          priceIncreases.push({
+            name: sub.name,
+            current: fmt(sub.currentAmount),
+            previous: fmt(sub.previousAmount ?? 0),
+            changePct: Math.round(sub.priceChangePct).toString(),
             meta: {
               merchantKey: sub.merchantKey,
               currentAmount: sub.currentAmount,
@@ -276,23 +341,19 @@ export async function runSubscriptionWatch(user_id: string): Promise<void> {
         }
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      subFindings = [{
-        severity: 'warning',
-        title: 'Subscription data unavailable',
-        body: `Could not load subscription data: ${msg}`,
-      }];
+      subDataError = err instanceof Error ? err.message : String(err);
     }
 
-    let renewalFindings: InsightFinding[] = [];
+    let renewals: RenewalRaw[] = [];
     try {
-      const renewals = await getUpcomingRenewals(user_id, 14);
-      for (const renewal of renewals) {
+      const upcoming = await getUpcomingRenewals(user_id, 14);
+      for (const renewal of upcoming) {
         if (renewal.daysUntil <= RENEWAL_ALERT_WITHIN_DAYS) {
-          renewalFindings.push({
-            severity: 'info',
-            title: `Upcoming renewal: ${renewal.description}`,
-            body: `₪${fmt(renewal.amount)} expected on ${renewal.nextExpected} (in ${renewal.daysUntil} day(s)).`,
+          renewals.push({
+            description: renewal.description,
+            amount: fmt(renewal.amount),
+            date: renewal.nextExpected,
+            days: renewal.daysUntil,
             meta: {
               patternId: renewal.patternId,
               merchantKey: renewal.merchantKey,
@@ -304,27 +365,68 @@ export async function runSubscriptionWatch(user_id: string): Promise<void> {
         }
       }
     } catch {
-      renewalFindings = [];
+      // renewals stays empty on failure
     }
 
-    const findings: InsightFinding[] = [...subFindings, ...renewalFindings];
+    const buildFindings = (lang: InsightLang): InsightFinding[] => {
+      const t = i18n[lang];
+      const findings: InsightFinding[] = [];
 
-    if (findings.length === 0) {
-      findings.push({
-        severity: 'info',
-        title: 'Subscriptions stable',
-        body: 'No significant subscription changes detected.',
-      });
-    }
+      if (subDataError !== null) {
+        findings.push({
+          severity: 'warning',
+          title: t.subDataUnavailableTitle,
+          body: t.subDataUnavailableBody(subDataError),
+        });
+      } else {
+        for (const pi of priceIncreases) {
+          findings.push({
+            severity: 'warning',
+            title: t.priceIncreaseTitle(pi.name),
+            body: t.priceIncreaseBody(pi.current, pi.previous, pi.changePct),
+            meta: pi.meta,
+          });
+        }
+      }
 
-    await agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, findings);
+      for (const r of renewals) {
+        findings.push({
+          severity: 'info',
+          title: t.upcomingRenewalTitle(r.description),
+          body: t.upcomingRenewalBody(r.amount, r.date, r.days),
+          meta: r.meta,
+        });
+      }
+
+      if (findings.length === 0) {
+        findings.push({
+          severity: 'info',
+          title: t.subscriptionsStableTitle,
+          body: t.subscriptionsStableBody,
+        });
+      }
+
+      return findings;
+    };
+
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, buildFindings('en'), undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, buildFindings('he'), undefined, 'he'),
+    ]);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    await agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, [{
-      severity: 'warning',
-      title: 'Analysis unavailable',
-      body: `Subscription watch could not complete: ${msg}`,
-    }]);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, [{
+        severity: 'warning',
+        title: i18n.en.analysisUnavailableTitle,
+        body: i18n.en.subscriptionUnavailableBody(msg),
+      }], undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'subscription-watch', todayStr, [{
+        severity: 'warning',
+        title: i18n.he.analysisUnavailableTitle,
+        body: i18n.he.subscriptionUnavailableBody(msg),
+      }], undefined, 'he'),
+    ]);
   }
 }
 
@@ -342,7 +444,6 @@ export async function runIncomeDetection(user_id: string): Promise<void> {
 
   try {
     const currentMonthStart = monthBounds(now).start;
-
     const priorMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const priorBounds = monthBounds(priorMonthDate);
 
@@ -353,46 +454,65 @@ export async function runIncomeDetection(user_id: string): Promise<void> {
 
     const currentIncome = sumIncome(currentBankTxns);
     const priorIncome = sumIncome(priorBankTxns);
+    const hasNoneThisMonth = priorIncome > INCOME_PRIOR_MIN && currentIncome === 0;
 
-    const findings: InsightFinding[] = [];
-
-    findings.push({
-      severity: 'info',
-      title: 'Income this month',
-      body: `Received ₪${fmt(currentIncome)} in income so far this month.`,
-    });
-
-    if (priorIncome > INCOME_PRIOR_MIN && currentIncome === 0) {
-      findings.push({
-        severity: 'warning',
-        title: 'No income detected',
-        body: 'You had income last month but none detected yet this month.',
-      });
-    } else if (currentIncome > 0 && priorIncome > 0) {
-      const change = ((currentIncome - priorIncome) / priorIncome) * 100;
-      if (change > INCOME_CHANGE_THRESHOLD_PCT) {
-        findings.push({
-          severity: 'info',
-          title: 'Income up',
-          body: `Income ₪${fmt(currentIncome)} this month vs ₪${fmt(priorIncome)} last month (+${pct(change)}%).`,
-        });
-      } else if (change < -INCOME_CHANGE_THRESHOLD_PCT) {
-        findings.push({
-          severity: 'warning',
-          title: 'Income down',
-          body: `Income ₪${fmt(currentIncome)} this month vs ₪${fmt(priorIncome)} last month (-${pct(change)}%).`,
-        });
-      }
+    let change = 0;
+    let isIncomeUp = false;
+    let isIncomeDown = false;
+    if (currentIncome > 0 && priorIncome > 0) {
+      change = ((currentIncome - priorIncome) / priorIncome) * 100;
+      isIncomeUp = change > INCOME_CHANGE_THRESHOLD_PCT;
+      isIncomeDown = change < -INCOME_CHANGE_THRESHOLD_PCT;
     }
 
-    await agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, findings);
+    const buildFindings = (lang: InsightLang): InsightFinding[] => {
+      const t = i18n[lang];
+      const findings: InsightFinding[] = [];
+      findings.push({
+        severity: 'info',
+        title: t.incomeThisMonthTitle,
+        body: t.incomeThisMonthBody(fmt(currentIncome)),
+      });
+      if (hasNoneThisMonth) {
+        findings.push({
+          severity: 'warning',
+          title: t.noIncomeTitle,
+          body: t.noIncomeBody,
+        });
+      } else if (isIncomeUp) {
+        findings.push({
+          severity: 'info',
+          title: t.incomeUpTitle,
+          body: t.incomeUpBody(fmt(currentIncome), fmt(priorIncome), pct(change)),
+        });
+      } else if (isIncomeDown) {
+        findings.push({
+          severity: 'warning',
+          title: t.incomeDownTitle,
+          body: t.incomeDownBody(fmt(currentIncome), fmt(priorIncome), pct(change)),
+        });
+      }
+      return findings;
+    };
+
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, buildFindings('en'), undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, buildFindings('he'), undefined, 'he'),
+    ]);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    await agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, [{
-      severity: 'warning',
-      title: 'Analysis unavailable',
-      body: `Income detection could not complete: ${msg}`,
-    }]);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, [{
+        severity: 'warning',
+        title: i18n.en.analysisUnavailableTitle,
+        body: i18n.en.incomeUnavailableBody(msg),
+      }], undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'income-detection', todayStr, [{
+        severity: 'warning',
+        title: i18n.he.analysisUnavailableTitle,
+        body: i18n.he.incomeUnavailableBody(msg),
+      }], undefined, 'he'),
+    ]);
   }
 }
 
@@ -510,8 +630,12 @@ export async function runAnomalyDetection(user_id: string): Promise<void> {
 
   try {
     const current = monthBounds(now);
-    const historyStart = monthBounds(new Date(now.getFullYear(), now.getMonth() - ANOMALY_LOOKBACK_MONTHS, 1)).start;
-    const historyEnd = monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1)).end;
+    const historyStart = monthBounds(
+      new Date(now.getFullYear(), now.getMonth() - ANOMALY_LOOKBACK_MONTHS, 1),
+    ).start;
+    const historyEnd = monthBounds(
+      new Date(now.getFullYear(), now.getMonth() - 1, 1),
+    ).end;
 
     const [currentData, historyData] = await Promise.all([
       fetchCompletedTransactions(user_id, { eventDate: { $gte: current.start, $lte: todayStr } }),
@@ -526,58 +650,75 @@ export async function runAnomalyDetection(user_id: string): Promise<void> {
         const baseline = (historySpend.get(merchant) ?? 0) / ANOMALY_LOOKBACK_MONTHS;
         return { merchant, spent, baseline, delta: spent - baseline };
       })
-      .filter((a) => a.baseline > 0 && a.spent >= a.baseline * ANOMALY_RATIO && a.delta >= ANOMALY_MIN_DELTA)
+      .filter(
+        (a) => a.baseline > 0 && a.spent >= a.baseline * ANOMALY_RATIO && a.delta >= ANOMALY_MIN_DELTA,
+      )
       .sort((a, b) => b.delta - a.delta)
       .slice(0, ANOMALY_MAX_FLAGS);
 
     const currentAllTxns = [...currentData.regularTxns, ...currentData.cardTxns] as RawTxn[];
     const duplicates = detectDuplicateCharges(currentAllTxns);
 
-    const findings: InsightFinding[] = [];
+    const buildFindings = (lang: InsightLang): InsightFinding[] => {
+      const t = i18n[lang];
+      const findings: InsightFinding[] = [];
 
-    for (const anomaly of anomalies) {
-      findings.push({
-        severity: 'warning',
-        title: `Unusual spend at ${anomaly.merchant}`,
-        body: `₪${fmt(anomaly.spent)} this month vs a ₪${fmt(anomaly.baseline)} monthly average.`,
-        meta: {
-          merchant: anomaly.merchant,
-          spent: Math.round(anomaly.spent),
-          baseline: Math.round(anomaly.baseline),
-          delta: Math.round(anomaly.delta),
-        },
-      });
-    }
+      for (const anomaly of anomalies) {
+        findings.push({
+          severity: 'warning',
+          title: t.unusualSpendTitle(anomaly.merchant),
+          body: t.unusualSpendBody(fmt(anomaly.spent), fmt(anomaly.baseline)),
+          meta: {
+            merchant: anomaly.merchant,
+            spent: Math.round(anomaly.spent),
+            baseline: Math.round(anomaly.baseline),
+            delta: Math.round(anomaly.delta),
+          },
+        });
+      }
 
-    for (const dup of duplicates) {
-      findings.push({
-        severity: 'warning',
-        title: `Possible duplicate charge at ${dup.merchant}`,
-        body: `₪${fmt(dup.amount)} appears ${dup.count} time(s) within 48 hours.`,
-        meta: {
-          merchant: dup.merchant,
-          amount: dup.amount,
-          count: dup.count,
-          windowHours: dup.windowHours,
-        },
-      });
-    }
+      for (const dup of duplicates) {
+        findings.push({
+          severity: 'warning',
+          title: t.duplicateChargeTitle(dup.merchant),
+          body: t.duplicateChargeBody(fmt(dup.amount), dup.count),
+          meta: {
+            merchant: dup.merchant,
+            amount: dup.amount,
+            count: dup.count,
+            windowHours: dup.windowHours,
+          },
+        });
+      }
 
-    if (findings.length === 0) {
-      findings.push({
-        severity: 'info',
-        title: 'No anomalies detected',
-        body: 'Spending looks normal this month.',
-      });
-    }
+      if (findings.length === 0) {
+        findings.push({
+          severity: 'info',
+          title: t.noAnomaliesTitle,
+          body: t.noAnomaliesBody,
+        });
+      }
 
-    await agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, findings);
+      return findings;
+    };
+
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, buildFindings('en'), undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, buildFindings('he'), undefined, 'he'),
+    ]);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    await agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, [{
-      severity: 'warning',
-      title: 'Analysis unavailable',
-      body: `Anomaly detection could not complete: ${msg}`,
-    }]);
+    await Promise.all([
+      agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, [{
+        severity: 'warning',
+        title: i18n.en.analysisUnavailableTitle,
+        body: i18n.en.anomalyUnavailableBody(msg),
+      }], undefined, 'en'),
+      agentInsightsLogic.upsert(user_id, 'anomaly-detection', todayStr, [{
+        severity: 'warning',
+        title: i18n.he.analysisUnavailableTitle,
+        body: i18n.he.anomalyUnavailableBody(msg),
+      }], undefined, 'he'),
+    ]);
   }
 }
