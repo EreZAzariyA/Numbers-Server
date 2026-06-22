@@ -48,10 +48,7 @@ import {
   stagePendingAction,
   loadLatestPendingAction,
   loadPendingActionOrThrow,
-  expireStalePendingActions,
   cancelAllPendingActions,
-  toPendingActionView,
-  buildDefaultArgsPreview,
   buildInactiveActionMessage,
 } from './agent/pending-actions';
 
@@ -497,22 +494,8 @@ If you cannot verify the answer from a tool result, say that you could not verif
     return loadPendingActionOrThrow(user_id, actionId);
   }
 
-  private async expireStalePendingActions(user_id?: string): Promise<void> {
-    return expireStalePendingActions(user_id);
-  }
-
   private async cancelAllPendingActions(user_id: string): Promise<void> {
     return cancelAllPendingActions(user_id);
-  }
-
-  private toPendingActionView(
-    action: Pick<IAgentPendingActionCollection, '_id' | 'tool' | 'summary' | 'argsPreview' | 'expiresAt'>,
-  ): PendingActionView {
-    return toPendingActionView(action);
-  }
-
-  private buildDefaultArgsPreview(args: Record<string, unknown>): Record<string, unknown> {
-    return buildDefaultArgsPreview(args);
   }
 
   private buildInactiveActionMessage(
