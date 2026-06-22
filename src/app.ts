@@ -124,7 +124,10 @@ const bootstrap = async (): Promise<void> => {
 
     const collectionName = await connectToMongoDB();
     const redisAvailable = await connectRedis();
-    await ensureCollection(config.qdrantUrl);
+    await ensureCollection(config.qdrantUrl).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err ?? '');
+      config.log.warn({ msg }, 'Qdrant unavailable at startup — agent memory disabled until Qdrant is reachable');
+    });
     let workersEnabled = false;
 
     if (redisAvailable) {

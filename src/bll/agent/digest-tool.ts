@@ -9,6 +9,6 @@ Call this for general check-in questions ("how am I doing?", "anything I should 
     mode: 'read',
     schema: { type: 'object', properties: {} },
     summarize: () => 'Review the financial digest.',
-    execute: async (_, context) => agentInsightsLogic.getLatestDigest(context.user_id),
+    execute: async (_, context) => agentInsightsLogic.getLatestDigest(context.user_id, context.language),
   },
 ];

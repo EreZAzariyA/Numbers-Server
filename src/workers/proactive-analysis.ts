@@ -79,7 +79,7 @@ const processProactiveAnalysis = async (job: Job): Promise<void> => {
       }
     } else if (jobName === 'digest-generate') {
       const ok = await safeRun(userId, 'generateDashboardDigest', () =>
-        generateDashboardDigest(userId, 'en'),
+        generateDashboardDigest(userId),
       );
       if (ok) {
         processed++;
