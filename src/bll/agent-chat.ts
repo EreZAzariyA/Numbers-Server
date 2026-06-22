@@ -203,10 +203,17 @@ If you cannot verify the answer from a tool result, say that you could not verif
 
     try {
       // Classify intent and compose agent-specific tools + system prompt segment
+      emitProgress('routing-request');
       const classification = await agentManager.classify(message, normalizedLanguage, runtime);
       const allTools = this.getToolDefinitions();
       const composed = agentManager.compose(classification.agentIds, allTools);
       const canGroundData = composed.tools.some((t) => t.mode === 'read');
+
+      // Emit routing completion with agent names
+      const agentLabel = classification.agentIds
+        .map((id) => agentManager.getAgentName(id, normalizedLanguage))
+        .join(', ');
+      emitProgress('routing-complete', agentLabel);
 
       // Build the final system instruction with the agent segment appended
       const agentSystemInstruction = composed.systemPromptSegment
@@ -384,6 +391,13 @@ If you cannot verify the answer from a tool result, say that you could not verif
     switch (step) {
       case 'reviewing-request':
         return localize(language, 'Reviewing your request', 'בודק את הבקשה שלך');
+      case 'routing-request':
+        return localize(language, 'Routing your request', 'מנתב את הבקשה שלך');
+      case 'routing-complete':
+        if (toolName) {
+          return localize(language, `Routing to: ${toolName}`, `מנתב אל: ${toolName}`);
+        }
+        return localize(language, 'Request routed', 'הבקשה נותבה');
       case 'loading-finance-context':
         return localize(language, 'Loading your finance context', 'טוען את ההקשר הפיננסי שלך');
       case 'consulting-assistant':
